@@ -4,6 +4,9 @@ import Import
 import Yesod.Form.Bootstrap3 (BootstrapFormLayout (..), renderBootstrap3)
 import Text.Julius (RawJS (..))
 
+import qualified Data.Text as Txt
+import qualified Data.Text.IO as Txt
+
 -- Define our data that will be used for creating the form.
 data FileForm = FileForm
     { fileInfo :: FileInfo
@@ -19,14 +22,15 @@ data FileForm = FileForm
 -- inclined, or create a single monolithic file.
 getHomeR :: Handler Html
 getHomeR = do
-    (formWidget, formEnctype) <- generateFormPost sampleForm
-    let submission = Nothing :: Maybe FileForm
-        handlerName = "getHomeR" :: Text
-    defaultLayout $ do
-        let (commentFormId, commentTextareaId, commentListId) = commentIds
-        aDomId <- newIdent
-        setTitle "Welcome To Yesod!"
-        $(widgetFile "homepage")
+	clientId <- lift $
+		Txt.concat . Txt.lines <$> Txt.readFile "clientId.txt"
+	redirect $
+		"https://auth.login.yahoo.co.jp/yconnect/v1/authorization?" <>
+			"response_type=code+id_token&" <>
+			"scope=openid+profile&" <>
+			"client_id=" <> clientId <> "&state=hogeru&" <>
+			"nonce=abcdefghijklmnop&" <>
+			"redirect_uri=http://localhost:3000/logined"
 
 postHomeR :: Handler Html
 postHomeR = do

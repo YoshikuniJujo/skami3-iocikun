@@ -24,6 +24,7 @@ library
                      Handler.Home
                      Handler.Comment
                      Handler.Profile
+                     Handler.Logined
 
     if flag(dev) || flag(library-only)
         cpp-options:   -DDEVELOPMENT
@@ -93,6 +94,8 @@ library
                  , time
                  , case-insensitive
                  , wai
+                 , base64-bytestring
+                 , cryptohash
 
 executable         skami3-iocikun
     if flag(library-only)
