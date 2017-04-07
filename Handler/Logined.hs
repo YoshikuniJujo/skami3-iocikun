@@ -17,8 +17,10 @@ import qualified Data.HashMap.Lazy as HML
 import qualified Data.Text as Txt
 import qualified Data.ByteString.Lazy as LBS
 
-import Crypto.MAC.HMAC
-import qualified Crypto.Hash.SHA256 as SHA256
+import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
+import Crypto.Hash.Algorithms (SHA256)
+
+import Data.ByteArray
 
 directory :: FilePath
 directory = "/home/tatsuya/keter/skami3/"
@@ -80,8 +82,7 @@ getLoginedR = do
 	print hdd
 	print pld
 	putStrLn sg
-	lift . BSC.putStrLn . B64.encode
-		. hmac SHA256.hash 64 clientSecret
+	lift . BSC.putStrLn . hmacSha256 clientSecret
 		$ encodeUtf8 hd <> "." <> encodeUtf8 pl
 	initReq2 <- parseRequest $
 		"https://userinfo.yahooapis.jp/yconnect/v1/attribute?schema=openid"
@@ -98,6 +99,9 @@ getLoginedR = do
 		aDomId <- newIdent
 		setTitle "Welcome To Yesod!"
 		$(widgetFile "homepage")
+
+hmacSha256 :: ByteString -> ByteString -> ByteString
+hmacSha256 s d = B64.encode . convert $ hmacGetDigest (hmac s d :: HMAC SHA256)
 
 sampleForm :: Form FileForm
 sampleForm = renderBootstrap3 BootstrapBasicForm $ FileForm

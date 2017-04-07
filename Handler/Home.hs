@@ -7,6 +7,8 @@ import Text.Julius (RawJS (..))
 import qualified Data.Text as Txt
 import qualified Data.Text.IO as Txt
 
+-- import Crypto.Random
+
 directory :: FilePath
 directory = "/home/tatsuya/keter/skami3/"
 
@@ -15,6 +17,18 @@ data FileForm = FileForm
     { fileInfo :: FileInfo
     , fileDescription :: Text
     }
+
+yconnect :: (MonadHandler m,
+		RedirectUrl (HandlerSite m) url, Semigroup url, IsString url) =>
+	url -> url -> m a
+yconnect cid ruri = redirect $
+	"https://auth.login.yahoo.co.jp/yconnect/v1/authorization?" <>
+	"response_type=code+id_token&" <>
+	"scope=openid+profile&" <>
+	"client_id=" <> cid <> "&" <>
+	"state=hogeru&" <>
+	"nonce=abcdefghijklmnop&" <>
+	"redirect_uri=" <> ruri
 
 -- This is a handler function for the GET request method on the HomeR
 -- resource pattern. All of your resource patterns are defined in
@@ -29,15 +43,7 @@ getHomeR = do
 		<$> Txt.readFile (directory </> "clientId.txt")
 	redirectUri <- lift $ Txt.concat . Txt.lines
 		<$> Txt.readFile (directory </> "redirectUri.txt")
-	redirect $
-		"https://auth.login.yahoo.co.jp/yconnect/v1/authorization?" <>
-			"response_type=code+id_token&" <>
-			"scope=openid+profile&" <>
-			"client_id=" <> clientId <> "&state=hogeru&" <>
-			"nonce=abcdefghijklmnop&" <>
-			"redirect_uri=" <> redirectUri
---			"redirect_uri=http://localhost:3000/logined"
---			"redirect_uri=https://skami3.iocikun.jp/logined"
+	yconnect clientId redirectUri
 
 postHomeR :: Handler Html
 postHomeR = do

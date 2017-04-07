@@ -28,9 +28,9 @@ library
 
     if flag(dev) || flag(library-only)
         cpp-options:   -DDEVELOPMENT
-        ghc-options:   -Wall -fwarn-tabs -O0
+        ghc-options:   -Wall -fno-warn-tabs -O0
     else
-        ghc-options:   -Wall -fwarn-tabs -O2
+        ghc-options:   -Wall -fno-warn-tabs -O2
 
     extensions: TemplateHaskell
                 QuasiQuotes
@@ -95,7 +95,8 @@ library
                  , case-insensitive
                  , wai
                  , base64-bytestring
-                 , cryptohash
+                 , cryptonite
+                 , memory
 
 executable         skami3-iocikun
     if flag(library-only)
