@@ -7,6 +7,9 @@ import Text.Julius (RawJS (..))
 import qualified Data.Text as Txt
 import qualified Data.Text.IO as Txt
 
+directory :: FilePath
+directory = "/home/tatsuya/keter/skami3/"
+
 -- Define our data that will be used for creating the form.
 data FileForm = FileForm
     { fileInfo :: FileInfo
@@ -22,15 +25,16 @@ data FileForm = FileForm
 -- inclined, or create a single monolithic file.
 getHomeR :: Handler Html
 getHomeR = do
-	clientId <- lift $
-		Txt.concat . Txt.lines <$> Txt.readFile "clientId.txt"
+	clientId <- lift $ Txt.concat . Txt.lines
+		<$> Txt.readFile (directory </> "clientId.txt")
 	redirect $
 		"https://auth.login.yahoo.co.jp/yconnect/v1/authorization?" <>
 			"response_type=code+id_token&" <>
 			"scope=openid+profile&" <>
 			"client_id=" <> clientId <> "&state=hogeru&" <>
 			"nonce=abcdefghijklmnop&" <>
-			"redirect_uri=http://localhost:3000/logined"
+--			"redirect_uri=http://localhost:3000/logined"
+			"redirect_uri=https://skami3.iocikun.jp/logined"
 
 postHomeR :: Handler Html
 postHomeR = do

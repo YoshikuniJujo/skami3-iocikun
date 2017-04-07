@@ -20,6 +20,9 @@ import qualified Data.ByteString.Lazy as LBS
 import Crypto.MAC.HMAC
 import qualified Crypto.Hash.SHA256 as SHA256
 
+directory :: FilePath
+directory = "/home/tatsuya/keter/skami3/"
+
 -- Define our data that will be used for creating the form.
 data FileForm = FileForm
     { fileInfo :: FileInfo
@@ -37,12 +40,12 @@ getLoginedR :: Handler Html
 getLoginedR = do
 	Just code <- lookupGetParam "code"
 	Just state <- lookupGetParam "state"
-	print code
-	print state
-	clientId <-
-		lift $ BS.concat . BSC.lines <$> BS.readFile "clientId.txt"
-	clientSecret <-
-		lift $ BS.concat . BSC.lines <$> BS.readFile "clientSecret.txt"
+	$(logInfo) code
+	$(logInfo) state
+	clientId <- lift $ BS.concat . BSC.lines
+			<$> BS.readFile (directory </> "clientId.txt")
+	clientSecret <- lift $ BS.concat . BSC.lines
+			<$> BS.readFile (directory </> "clientSecret.txt")
 	initReq <-
 		parseRequest "https://auth.login.yahoo.co.jp/yconnect/v1/token"
 	let	clientIdSecret = B64.encode $ clientId <> ":" <> clientSecret
@@ -54,9 +57,10 @@ getLoginedR = do
 		req'' = setRequestBody (RequestBodyBS $
 			"grant_type=authorization_code&code=" <>
 			encodeUtf8 code <>
-			"&redirect_uri=http://localhost:3000/logined") req'
+--			"&redirect_uri=http://localhost:3000/logined") req'
+			"&redirect_uri=https://skami3.iocikun.jp/logined") req'
 	rBody <- getResponseBody <$> httpLBS req''
-	print rBody
+	liftIO $ LBS.writeFile (directory </> "tmp.txt") rBody
 	let	Just resp = Aeson.decode rBody :: Maybe Aeson.Object
 	print $ keys resp
 	let	Just (String at) = HML.lookup "access_token" resp
