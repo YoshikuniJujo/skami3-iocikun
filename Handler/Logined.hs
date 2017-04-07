@@ -43,9 +43,11 @@ getLoginedR = do
 	$(logInfo) code
 	$(logInfo) state
 	clientId <- lift $ BS.concat . BSC.lines
-			<$> BS.readFile (directory </> "clientId.txt")
+		<$> BS.readFile (directory </> "clientId.txt")
 	clientSecret <- lift $ BS.concat . BSC.lines
-			<$> BS.readFile (directory </> "clientSecret.txt")
+		<$> BS.readFile (directory </> "clientSecret.txt")
+	redirectUri <- lift $ BS.concat . BSC.lines
+		<$> BS.readFile (directory </> "redirectUri.txt")
 	initReq <-
 		parseRequest "https://auth.login.yahoo.co.jp/yconnect/v1/token"
 	let	clientIdSecret = B64.encode $ clientId <> ":" <> clientSecret
@@ -57,8 +59,9 @@ getLoginedR = do
 		req'' = setRequestBody (RequestBodyBS $
 			"grant_type=authorization_code&code=" <>
 			encodeUtf8 code <>
+			"&redirect_uri=" <> redirectUri) req'
 --			"&redirect_uri=http://localhost:3000/logined") req'
-			"&redirect_uri=https://skami3.iocikun.jp/logined") req'
+--			"&redirect_uri=https://skami3.iocikun.jp/logined") req'
 	rBody <- getResponseBody <$> httpLBS req''
 	liftIO $ LBS.writeFile (directory </> "tmp.txt") rBody
 	let	Just resp = Aeson.decode rBody :: Maybe Aeson.Object

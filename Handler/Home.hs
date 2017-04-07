@@ -27,14 +27,17 @@ getHomeR :: Handler Html
 getHomeR = do
 	clientId <- lift $ Txt.concat . Txt.lines
 		<$> Txt.readFile (directory </> "clientId.txt")
+	redirectUri <- lift $ Txt.concat . Txt.lines
+		<$> Txt.readFile (directory </> "redirectUri.txt")
 	redirect $
 		"https://auth.login.yahoo.co.jp/yconnect/v1/authorization?" <>
 			"response_type=code+id_token&" <>
 			"scope=openid+profile&" <>
 			"client_id=" <> clientId <> "&state=hogeru&" <>
 			"nonce=abcdefghijklmnop&" <>
+			"redirect_uri=" <> redirectUri
 --			"redirect_uri=http://localhost:3000/logined"
-			"redirect_uri=https://skami3.iocikun.jp/logined"
+--			"redirect_uri=https://skami3.iocikun.jp/logined"
 
 postHomeR :: Handler Html
 postHomeR = do
