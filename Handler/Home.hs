@@ -7,10 +7,17 @@ import Text.Julius (RawJS (..))
 import qualified Data.Text as Txt
 import qualified Data.Text.IO as Txt
 
--- import Crypto.Random
+import Crypto.Random
+
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Base64.URL as B64
 
 directory :: FilePath
 directory = "/home/tatsuya/keter/skami3/"
+
+getNonce :: MonadRandom m => Int -> m Text
+getNonce = (Txt.dropWhileEnd (== '=') . decodeUtf8 . B64.encode <$>)
+	. getRandomBytes
 
 -- Define our data that will be used for creating the form.
 data FileForm = FileForm
@@ -18,16 +25,14 @@ data FileForm = FileForm
     , fileDescription :: Text
     }
 
-yconnect :: (MonadHandler m,
-		RedirectUrl (HandlerSite m) url, Semigroup url, IsString url) =>
-	url -> url -> m a
-yconnect cid ruri = redirect $
+yconnect :: MonadHandler m => Text -> Text -> Text -> Text -> m a
+yconnect stt nnc cid ruri = redirect $
 	"https://auth.login.yahoo.co.jp/yconnect/v1/authorization?" <>
 	"response_type=code+id_token&" <>
 	"scope=openid+profile&" <>
 	"client_id=" <> cid <> "&" <>
-	"state=hogeru&" <>
-	"nonce=abcdefghijklmnop&" <>
+	"state=" <> stt <> "&" <>
+	"nonce=" <> nnc <> "&" <>
 	"redirect_uri=" <> ruri
 
 -- This is a handler function for the GET request method on the HomeR
@@ -39,11 +44,13 @@ yconnect cid ruri = redirect $
 -- inclined, or create a single monolithic file.
 getHomeR :: Handler Html
 getHomeR = do
+	(state, nonce) <- lift $ (,) <$> getNonce 256 <*> getNonce 256
+	print nonce
 	clientId <- lift $ Txt.concat . Txt.lines
 		<$> Txt.readFile (directory </> "clientId.txt")
 	redirectUri <- lift $ Txt.concat . Txt.lines
 		<$> Txt.readFile (directory </> "redirectUri.txt")
-	yconnect clientId redirectUri
+	yconnect state nonce clientId redirectUri
 
 postHomeR :: Handler Html
 postHomeR = do

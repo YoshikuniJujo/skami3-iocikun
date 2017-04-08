@@ -73,12 +73,16 @@ getLoginedR = do
 	print at
 	print it
 	let	[hd, pl, sg] = Txt.splitOn "." it
-		[Just hdd, Just pld] = map
+	print hd
+	print $ Txt.length hd
+	print pl
+	print $ Txt.length pl
+	let	[Just hdd, Just pld] = map
 			((Aeson.decode :: LBS.ByteString -> Maybe Aeson.Object)
 				. LBS.fromStrict
-				. either (error . show) id
+				. either (error . ("B64.decode error " ++) . show) id
 				. B64.decode . encodeUtf8)
-			[hd, pl]
+			[padding hd, padding pl]
 	print hdd
 	print pld
 	putStrLn sg
@@ -102,6 +106,9 @@ getLoginedR = do
 
 hmacSha256 :: ByteString -> ByteString -> ByteString
 hmacSha256 s d = B64.encode . convert $ hmacGetDigest (hmac s d :: HMAC SHA256)
+
+padding :: Text -> Text
+padding t = t <> Txt.replicate (3 - (Txt.length t - 1) `mod` 4) "="
 
 sampleForm :: Form FileForm
 sampleForm = renderBootstrap3 BootstrapBasicForm $ FileForm
