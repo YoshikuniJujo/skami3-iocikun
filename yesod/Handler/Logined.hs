@@ -66,7 +66,7 @@ getLoginedR = do
 	print s0
 	print state
 	print $ s0 == state
-	runDB $ deleteWhere ([] :: [Filter OpenIdStateNonce])
+--	runDB $ deleteWhere ([] :: [Filter OpenIdStateNonce])
 	clientId <- lift $ BS.concat . BSC.lines
 		<$> BS.readFile (directory </> "clientId.txt")
 	clientSecret <- lift $ BS.concat . BSC.lines
