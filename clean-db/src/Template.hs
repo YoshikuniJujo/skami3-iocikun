@@ -26,7 +26,7 @@ tables ma = share [mkPersist sqlSettings, mkMigrate ma]
 
 database :: BS.ByteString
 database = "host=localhost port=5432 " <>
-	"user=skami3-iocikun_LOWER dbname=skami-iocikun_LOWER"
+	"user=skami3-iocikun_LOWER dbname=skami3-iocikun_LOWER"
 
 runDB :: Migration -> ReaderT SqlBackend (ResourceT (NoLoggingT IO )) a -> IO a
 runDB mg m = catch (runNoLoggingT . runResourceT . withPostgresqlConn database

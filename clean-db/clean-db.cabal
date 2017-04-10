@@ -31,7 +31,7 @@ executable clean-db
   main-is:             clean-db.hs
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Wall -fno-warn-tabs
   build-depends:
-    base, clean-db, persistent-template, text, esqueleto
+    base, clean-db, persistent-template, text, esqueleto, time
   default-language:    Haskell2010
   default-extensions:
     TemplateHaskell, QuasiQuotes, TypeApplications,
