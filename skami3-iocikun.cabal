@@ -97,6 +97,7 @@ library
                  , base64-bytestring
                  , cryptonite
                  , memory
+                 , esqueleto
 
 executable         skami3-iocikun
     if flag(library-only)

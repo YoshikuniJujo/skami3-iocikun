@@ -44,8 +44,12 @@ yconnect stt nnc cid ruri = redirect $
 -- inclined, or create a single monolithic file.
 getHomeR :: Handler Html
 getHomeR = do
-	(state, nonce) <- lift $ (,) <$> getNonce 256 <*> getNonce 256
-	print nonce
+	(state, nonce, date) <- lift
+		$ (,,) <$> getNonce 256 <*> getNonce 256 <*> getCurrentTime
+	_ <- runDB $ insert $ OpenIdStateNonce state nonce date
+	runDB (selectList ([] :: [Filter OpenIdStateNonce]) [])
+		>>= mapM_ print
+--	runDB $ deleteWhere ([] :: [Filter OpenIdStateNonce])
 	clientId <- lift $ Txt.concat . Txt.lines
 		<$> Txt.readFile (directory </> "clientId.txt")
 	redirectUri <- lift $ Txt.concat . Txt.lines

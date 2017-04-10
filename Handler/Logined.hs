@@ -1,6 +1,6 @@
 module Handler.Logined where
 
-import Import
+import Import hiding ((==.))
 import Yesod.Form.Bootstrap3 (BootstrapFormLayout (..), renderBootstrap3)
 import Text.Julius (RawJS (..))
 
@@ -22,6 +22,8 @@ import Crypto.Hash.Algorithms (SHA256)
 
 import Data.ByteArray
 
+import Database.Esqueleto
+
 directory :: FilePath
 directory = "/home/tatsuya/keter/skami3/"
 
@@ -38,12 +40,33 @@ data FileForm = FileForm
 -- The majority of the code you will write in Yesod lives in these handler
 -- functions. You can spread them across multiple files if you are so
 -- inclined, or create a single monolithic file.
+
+{-
+	w <- select . from $ \weather -> do
+		where_ $ weather ^. WeatherPrcp >. just (val 0.0)
+		return weather
+	liftIO . putStr $ showWeather w
+-}
+
 getLoginedR :: Handler Html
 getLoginedR = do
 	Just code <- lookupGetParam "code"
 	Just state <- lookupGetParam "state"
 	$(logInfo) code
 	$(logInfo) state
+	sn0 <- runDB . select . from $ \sn -> do
+		where_ $ sn ^. OpenIdStateNonceState ==. val state
+		return (
+			sn ^. OpenIdStateNonceState,
+			sn ^. OpenIdStateNonceNonce )
+	(s0, n0) <- case sn0 of
+		[(Value s, Value n)] -> return (s, n)
+		_ -> error "BAD STATE"
+	lift $ putStrLn "CHECK STATE"
+	print s0
+	print state
+	print $ s0 == state
+	runDB $ deleteWhere ([] :: [Filter OpenIdStateNonce])
 	clientId <- lift $ BS.concat . BSC.lines
 		<$> BS.readFile (directory </> "clientId.txt")
 	clientSecret <- lift $ BS.concat . BSC.lines
@@ -85,6 +108,12 @@ getLoginedR = do
 			[padding hd, padding pl]
 	print hdd
 	print pld
+	let	Just (String n1) = lookup "nonce" pld
+	putStrLn "CHECK NONCE"
+	print n0
+	print n1
+	print $ n1 == n0
+	when (n1 /= n0) $ error "BAD NONCE"
 	putStrLn sg
 	lift . BSC.putStrLn . hmacSha256 clientSecret
 		$ encodeUtf8 hd <> "." <> encodeUtf8 pl
