@@ -1,6 +1,6 @@
 module Handler.Logined where
 
-import Import hiding ((==.))
+import Import hiding ((==.), delete)
 import Yesod.Form.Bootstrap3 (BootstrapFormLayout (..), renderBootstrap3)
 import Text.Julius (RawJS (..))
 
@@ -114,6 +114,8 @@ getLoginedR = do
 	print n1
 	print $ n1 == n0
 	when (n1 /= n0) $ error "BAD NONCE"
+	runDB . delete . from $ \sc -> do
+		where_ $ sc ^. OpenIdStateNonceState ==. val s0
 	putStrLn sg
 	lift . BSC.putStrLn . hmacSha256 clientSecret
 		$ encodeUtf8 hd <> "." <> encodeUtf8 pl
