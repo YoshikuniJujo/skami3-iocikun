@@ -37,7 +37,8 @@ yconnect (ClientId cid) (RedirectUri ruri) = do
 		"client_id=" <> cid <> "&" <>
 		"state=" <> stt <> "&" <>
 		"nonce=" <> nnc <> "&" <>
-		"redirect_uri=" <> ruri
+		"redirect_uri=" <> ruri <> "&" <>
+		"bail=1"
 
 newtype AccessToken = AccessToken Text
 

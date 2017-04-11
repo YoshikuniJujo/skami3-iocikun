@@ -33,11 +33,15 @@ data FileForm = FileForm
 
 getLoginedR :: Handler Html
 getLoginedR = do
+	cs <- (\c s -> (,) <$> c <*> s)
+		<$> lookupGetParam "code" <*> lookupGetParam "state"
+	maybe (return ()) (uncurry logined) cs
+	showPage
+
+logined :: Text -> Text -> Handler ()
+logined code state = do
 	(clientId, clientSecret, redirectUri) <- lift $ (,,) 
 		<$> getClientId <*> getClientSecret <*> getRedirectUri
-
-	(Just code, Just state) <- (,)
-		<$> lookupGetParam "code" <*> lookupGetParam "state"
 	sn0 <- runDB . select . from $ \sn -> do
 		where_ $ sn ^. OpenIdStateNonceState ==. val state
 		return (
@@ -81,6 +85,9 @@ getLoginedR = do
 	when (sg1 /= encodeUtf8 sg) $ error "BAD SIGNATURE"
 
 	debugProfile $ AccessToken at
+
+showPage :: Handler Html
+showPage = do
 	(formWidget, formEnctype) <- generateFormPost sampleForm
 	let	submission = Nothing :: Maybe FileForm
 		handlerName = "getHomeR" :: Text
