@@ -35,10 +35,10 @@ getLoginedR :: Handler Html
 getLoginedR = do
 	cs <- (\c s -> (,) <$> c <*> s)
 		<$> lookupGetParam "code" <*> lookupGetParam "state"
-	maybe (return ()) (uncurry logined) cs
-	showPage
+	yourId <- maybe (return "unknown") (uncurry logined) cs
+	showPage yourId
 
-logined :: Text -> Text -> Handler ()
+logined :: Text -> Text -> Handler Text
 logined code state = do
 	(clientId, clientSecret, redirectUri) <- lift $ (,,) 
 		<$> getClientId <*> getClientSecret <*> getRedirectUri
@@ -76,6 +76,7 @@ logined code state = do
 			[padding hd, padding pl]
 	print hdd
 	print pld
+	print $ HML.lookup "user_id" pld
 	let	Just (String n1) = lookup "nonce" pld
 	when (n1 /= n0) $ error "BAD NONCE"
 	runDB . delete . from $ \sc -> do
@@ -85,11 +86,19 @@ logined code state = do
 	when (sg1 /= encodeUtf8 sg) $ error "BAD SIGNATURE"
 
 	debugProfile $ AccessToken at
+--	return "USER ID"
+	return . fromMaybe "Unknown" $ unstring =<< HML.lookup "user_id" pld
 
-showPage :: Handler Html
-showPage = do
+
+unstring :: Aeson.Value -> Maybe Text
+unstring (String t) = Just t
+unstring _ = Nothing
+
+showPage :: Text -> Handler Html
+showPage yid = do
 	(formWidget, formEnctype) <- generateFormPost sampleForm
-	let	submission = Nothing :: Maybe FileForm
+	let	yourId = yid
+		submission = Nothing :: Maybe FileForm
 		handlerName = "getHomeR" :: Text
 	defaultLayout $ do
 		let (commentFormId, commentTextareaId, commentListId) = commentIds

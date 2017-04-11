@@ -1,8 +1,8 @@
 module Handler.Home where
 
 import Import
-import Yesod.Form.Bootstrap3 (BootstrapFormLayout (..), renderBootstrap3)
-import Text.Julius (RawJS (..))
+-- import Yesod.Form.Bootstrap3 (BootstrapFormLayout (..), renderBootstrap3)
+-- import Text.Julius (RawJS (..))
 
 import OpenIdCon
 
@@ -14,6 +14,7 @@ data FileForm = FileForm {
 getHomeR :: Handler Html
 getHomeR = uncurry yconnect =<< lift ((,) <$> getClientId <*> getRedirectUri)
 
+{-
 postHomeR :: Handler Html
 postHomeR = do
     ((result, formWidget), formEnctype) <- runFormPost sampleForm
@@ -46,3 +47,4 @@ sampleForm = renderBootstrap3 BootstrapBasicForm $ FileForm
 
 commentIds :: (Text, Text, Text)
 commentIds = ("js-commentForm", "js-createCommentTextarea", "js-commentList")
+-}
