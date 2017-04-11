@@ -89,8 +89,7 @@ getLoginedR = do
 			"Authorization" ["Bearer " <> encodeUtf8 at] initReq2
 	rBody2 <- getResponseBody <$> httpLBS req2
 	let	Just json2 = Aeson.decode rBody2 :: Maybe Aeson.Object
---	mapM_ putStrLn . map showSimple $ HML.toList json2
-	mapM_ print . map showSimple $ HML.toList json2
+	mapM_ putStrLn . map showSimple $ HML.toList json2
 	(formWidget, formEnctype) <- generateFormPost sampleForm
 	let	submission = Nothing :: Maybe FileForm
 		handlerName = "getHomeR" :: Text
