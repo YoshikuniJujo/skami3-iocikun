@@ -64,7 +64,7 @@ logined code state = do
 	rBody <- getResponseBody <$> httpLBS req'
 
 	let	Just resp = Aeson.decode rBody :: Maybe Aeson.Object
-	let	Just (String at) = HML.lookup "access_token" resp
+		Just (String at) = HML.lookup "access_token" resp
 		Just (String it) = HML.lookup "id_token" resp
 		[hd, pl, sg] = Txt.splitOn "." it
 	print $ keys resp
@@ -74,11 +74,15 @@ logined code state = do
 				. either (error . ("B64.decode error " ++) . show) id
 				. B64.decode . encodeUtf8)
 			[padding hd, padding pl]
+		iss = HML.lookup "iss" pld
 	print hdd
 	print pld
 	print $ HML.lookup "user_id" pld
+	print iss
 	let	Just (String n1) = lookup "nonce" pld
 	when (n1 /= n0) $ error "BAD NONCE"
+	when (iss /= Just (String "https://auth.login.yahoo.co.jp")) $
+		error "BAD ISS"
 	runDB . delete . from $ \sc -> do
 		where_ $ sc ^. OpenIdStateNonceState ==. val s0
 	let sg1	= fst . BSC.spanEnd (== '=') . hmacSha256 (csToBs clientSecret)
