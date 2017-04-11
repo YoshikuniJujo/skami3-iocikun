@@ -24,9 +24,6 @@ import Data.ByteArray
 
 import Database.Esqueleto
 
-directory :: FilePath
-directory = "/home/tatsuya/keter/skami3/"
-
 -- Define our data that will be used for creating the form.
 data FileForm = FileForm
     { fileInfo :: FileInfo
