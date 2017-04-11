@@ -12,8 +12,7 @@ data FileForm = FileForm {
 	fileDescription :: Text }
 
 getHomeR :: Handler Html
-getHomeR =
-	(uncurry yconnect =<<) . lift $ (,) <$> getClientId <*> getRedirectUri
+getHomeR = uncurry yconnect =<< lift ((,) <$> getClientId <*> getRedirectUri)
 
 postHomeR :: Handler Html
 postHomeR = do
