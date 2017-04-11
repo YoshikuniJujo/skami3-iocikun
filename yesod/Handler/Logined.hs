@@ -23,6 +23,8 @@ import Data.ByteArray
 
 import Database.Esqueleto
 
+import OpenIdCon
+
 -- Define our data that will be used for creating the form.
 data FileForm = FileForm
     { fileInfo :: FileInfo
@@ -33,6 +35,7 @@ getLoginedR :: Handler Html
 getLoginedR = do
 	(clientId, clientSecret, redirectUri) <- lift $ (,,) 
 		<$> getClientId <*> getClientSecret <*> getRedirectUri
+
 	(Just code, Just state) <- (,)
 		<$> lookupGetParam "code" <*> lookupGetParam "state"
 	sn0 <- runDB . select . from $ \sn -> do
@@ -43,22 +46,19 @@ getLoginedR = do
 	(s0, n0) <- case sn0 of
 		[(Value s, Value n)] -> return (s, n)
 		_ -> error "BAD STATE"
-	lift $ putStrLn "CHECK STATE"
-	print $ s0 == state
+
 	initReq <-
 		parseRequest "https://auth.login.yahoo.co.jp/yconnect/v1/token"
-	let	clientIdSecret = B64.encode
-			$ cidToBs clientId <> ":" <> csToBs clientSecret
-		req = setRequestHeader "Content-Type"
-			["application/x-www-form-urlencoded"]
-			initReq { method = "POST" }
-		req' = setRequestHeader "Authorization"
-			["Basic " <> clientIdSecret] req
-		req'' = setRequestBody (RequestBodyBS $
-			"grant_type=authorization_code&code=" <>
-			encodeUtf8 code <>
-			"&redirect_uri=" <> ruToBs redirectUri) req'
-	rBody <- getResponseBody <$> httpLBS req''
+	let	req = foldr (uncurry setRequestHeader)
+			initReq { method = "POST" } [
+			("Content-Type", ["application/x-www-form-urlencoded"]),
+			basicAuthentication clientId clientSecret ]
+		req' = setRequestBody (RequestBodyBS $
+			"grant_type=authorization_code&" <>
+			"code=" <> encodeUtf8 code <> "&" <>
+			"redirect_uri=" <> ruToBs redirectUri) req
+	rBody <- getResponseBody <$> httpLBS req'
+
 	let	Just resp = Aeson.decode rBody :: Maybe Aeson.Object
 	let	Just (String at) = HML.lookup "access_token" resp
 		Just (String it) = HML.lookup "id_token" resp
@@ -73,23 +73,14 @@ getLoginedR = do
 	print hdd
 	print pld
 	let	Just (String n1) = lookup "nonce" pld
-	putStrLn "CHECK NONCE"
-	print $ n1 == n0
 	when (n1 /= n0) $ error "BAD NONCE"
 	runDB . delete . from $ \sc -> do
 		where_ $ sc ^. OpenIdStateNonceState ==. val s0
 	let sg1	= fst . BSC.spanEnd (== '=') . hmacSha256 (csToBs clientSecret)
 		$ encodeUtf8 hd <> "." <> encodeUtf8 pl
-	putStrLn "CHECK SIGNATURE"
-	print $ sg1 == encodeUtf8 sg
 	when (sg1 /= encodeUtf8 sg) $ error "BAD SIGNATURE"
-	initReq2 <- parseRequest $
-		"https://userinfo.yahooapis.jp/yconnect/v1/attribute?schema=openid"
-	let	req2 = setRequestHeader
-			"Authorization" ["Bearer " <> encodeUtf8 at] initReq2
-	rBody2 <- getResponseBody <$> httpLBS req2
-	let	Just json2 = Aeson.decode rBody2 :: Maybe Aeson.Object
-	mapM_ putStrLn . map showSimple $ HML.toList json2
+
+	debugProfile $ AccessToken at
 	(formWidget, formEnctype) <- generateFormPost sampleForm
 	let	submission = Nothing :: Maybe FileForm
 		handlerName = "getHomeR" :: Text
@@ -99,9 +90,10 @@ getLoginedR = do
 		setTitle "Welcome To Skami3!"
 		$(widgetFile "homepage")
 
-showSimple :: (Text, Aeson.Value) -> Text
-showSimple (k, String v) = k <> ": " <> v
-showSimple _ = "not simple value"
+basicAuthentication ::
+	IsString s => ClientId -> ClientSecret -> (s, [ByteString])
+basicAuthentication cid cs = ("Authorization", ["Basic " <> mkClientIdSecret])
+	where mkClientIdSecret = B64.encode $ cidToBs cid <> ":" <> csToBs cs
 
 hmacSha256 :: ByteString -> ByteString -> ByteString
 hmacSha256 s d = B64.encode . convert $ hmacGetDigest (hmac s d :: HMAC SHA256)
