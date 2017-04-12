@@ -5,7 +5,7 @@ module Environment (
 	RedirectUri(..), getRedirectUri, ruToBs
 	) where
 
-import Prelude ((.), (<$>))
+import Prelude ((.), (<$>), Show, Eq)
 
 import System.IO
 import System.FilePath ((</>))
@@ -20,7 +20,7 @@ import Data.ByteString (ByteString)
 directory :: FilePath
 directory = "/home/tatsuya/keter/skami3/"
 
-newtype ClientId = ClientId Text
+newtype ClientId = ClientId Text deriving (Show, Eq)
 
 getClientId :: IO ClientId
 getClientId = ClientId . Txt.concat . Txt.lines

@@ -75,14 +75,18 @@ logined code state = do
 				. B64.decode . encodeUtf8)
 			[padding hd, padding pl]
 		iss = HML.lookup "iss" pld
+		aud = unstring =<< HML.lookup "aud" pld
 	print hdd
 	print pld
 	print $ HML.lookup "user_id" pld
 	print iss
+	print aud
+	print clientId
 	let	Just (String n1) = lookup "nonce" pld
 	when (n1 /= n0) $ error "BAD NONCE"
 	when (iss /= Just (String "https://auth.login.yahoo.co.jp")) $
 		error "BAD ISS"
+	when (maybe True ((/= clientId) . ClientId) aud) $ error "BAD AUD"
 	runDB . delete . from $ \sc -> do
 		where_ $ sc ^. OpenIdStateNonceState ==. val s0
 	let sg1	= fst . BSC.spanEnd (== '=') . hmacSha256 (csToBs clientSecret)
