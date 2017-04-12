@@ -8,21 +8,19 @@ import qualified Data.Text as Txt
 import OpenIdCon
 
 -- Define our data that will be used for creating the form.
-data FileForm = FileForm
-    { fileInfo :: FileInfo
-    , fileDescription :: Text
-    }
+data FileForm = FileForm {
+	fileInfo :: FileInfo,
+	fileDescription :: Text }
 
 getLoginedR :: Handler Html
 getLoginedR = do
-	cs <- (\c s -> (,) <$> c <*> s)
+	cs <- (\c s -> (,) <$> (Code <$> c) <*> (State <$> s))
 		<$> lookupGetParam "code" <*> lookupGetParam "state"
-	ua <- maybe (return Nothing) (uncurry logined) cs
-	maybe (return ()) (debugProfile . snd) ua
+	ua <- maybe (return $ Left "no code or state") (uncurry logined) cs
+	either (const $ return ()) (debugProfile . snd) ua
 	showPage $ fst <$> ua
 
-
-showPage :: Maybe UserId -> Handler Html
+showPage :: Either String UserId -> Handler Html
 showPage yid = do
 	(formWidget, formEnctype) <- generateFormPost sampleForm
 	let	yourId = Txt.pack $ show yid

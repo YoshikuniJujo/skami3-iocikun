@@ -1,13 +1,16 @@
 module OpenIdCon (
 	yconnect,
+	Code(..),
+	State(..),
 	UserId(..),
 	AccessToken(..),
 	debugProfile,
 	logined
 	) where
 
-import Import hiding (UserId, (==.), delete)
+import Import hiding (UserId, (==.), delete, Header, check)
 
+import Data.Maybe (fromJust)
 import Data.ByteArray
 import Data.Time.Clock.POSIX
 import Data.Scientific
@@ -48,22 +51,41 @@ yconnect (ClientId cid) (RedirectUri ruri) = do
 		"redirect_uri=" <> ruri <> "&" <>
 		"bail=1"
 
-newtype UserId = UserId Text deriving Show
-newtype AccessToken = AccessToken Text
+newtype Code = Code Text
+newtype State = State Text
+newtype Nonce0 = Nonce0 Text
 
-logined :: Text -> Text -> Handler (Maybe (UserId, AccessToken))
-logined code state = do
+newtype Iss = Iss Text deriving Show
+newtype Aud = Aud Text deriving Show
+newtype Now = Now POSIXTime deriving Show
+newtype Iat = Iat POSIXTime deriving Show
+newtype Exp = Exp POSIXTime deriving Show
+newtype Nonce1 = Nonce1 Text deriving Show
+
+newtype Signature = Signature Text deriving Show
+newtype Header = Header Text deriving Show
+newtype Payload = Payload Text deriving Show
+
+newtype UserId = UserId Text deriving Show
+newtype AccessToken = AccessToken Text deriving Show
+
+logined :: Code -> State -> Handler (Either String (UserId, AccessToken))
+logined code (State state) = do
+	nonce <- runDB $ do
+		n <- select . from $ \sn -> do
+			where_ $ sn ^. OpenIdStateNonceState ==. val state
+			return ( sn ^. OpenIdStateNonceNonce )
+		delete . from $ \sc -> do
+			where_ $ sc ^. OpenIdStateNonceState ==. val state
+		return n
+	case nonce of
+		[Value n] -> loginedGen code (Nonce0 n)
+		_ -> return $ Left "No or Multiple state"
+
+loginedGen :: Code -> Nonce0 -> Handler (Either String (UserId, AccessToken))
+loginedGen (Code code) (Nonce0 n0) = do
 	(clientId, clientSecret, redirectUri) <- lift $ (,,) 
 		<$> getClientId <*> getClientSecret <*> getRedirectUri
-	sn0 <- runDB . select . from $ \sn -> do
-		where_ $ sn ^. OpenIdStateNonceState ==. val state
-		return (
-			sn ^. OpenIdStateNonceState,
-			sn ^. OpenIdStateNonceNonce )
-	(s0, n0) <- case sn0 of
-		[(Value s, Value n)] -> return (s, n)
-		_ -> error "BAD STATE"
-
 	initReq <-
 		parseRequest "https://auth.login.yahoo.co.jp/yconnect/v1/token"
 	let	req = foldr (uncurry setRequestHeader)
@@ -77,13 +99,15 @@ logined code state = do
 	rBody <- getResponseBody <$> httpLBS req'
 
 	let	Just resp = Aeson.decode rBody :: Maybe Aeson.Object
-		at = AccessToken
+		mat = AccessToken
 			<$> (unstring =<< HML.lookup "access_token" resp)
 		Just (String it) = HML.lookup "id_token" resp
 		Just (String ei) = HML.lookup "expires_in" resp
 		Just (String tt) = HML.lookup "token_type" resp
 		Just (String rt) = HML.lookup "refresh_token" resp
-		[hd, pl, sg] = Txt.splitOn "." it
+		(mhd_, mpl_, msg_) = case Txt.splitOn "." it of
+			[h, p, s] -> (Just h, Just p, Just s)
+			_ -> (Nothing, Nothing, Nothing)
 	print $ keys resp
 	print ei
 	print tt
@@ -93,40 +117,82 @@ logined code state = do
 				. LBS.fromStrict
 				. either (error . ("B64.decode error " ++) . show) id
 				. B64.decode . encodeUtf8)
-			[padding hd, padding pl]
-		iss = HML.lookup "iss" pld
-		aud = unstring =<< HML.lookup "aud" pld
-		iat = fromRational . toRational
+			[padding $ fromJust mhd_, padding $ fromJust mpl_]
+		miss = Iss <$> (unstring =<< HML.lookup "iss" pld)
+		maud = Aud <$> (unstring =<< HML.lookup "aud" pld)
+		miat = Iat . fromRational . toRational
 			<$> (unnumber =<< HML.lookup "iat" pld)
-		exp = fromRational . toRational
+		mex = Exp . fromRational . toRational
 			<$> (unnumber =<< HML.lookup "exp" pld)
-		uid = UserId <$> (unstring =<< HML.lookup "user_id" pld)
+		mn1 = Nonce1 <$> (unstring =<< lookup "nonce" pld)
+		mhd = Header <$> mhd_
+		mpl = Payload <$> mpl_
+		msg = Signature <$> msg_
+		muid = UserId <$> (unstring =<< HML.lookup "user_id" pld)
 	now <- lift getPOSIXTime
 	print hdd
 	print pld
-	print uid
-	print iss
-	print aud
+	print muid
+	print miss
+	print maud
 	print clientId
-	print (iat :: Maybe POSIXTime)
-	print (exp :: Maybe POSIXTime)
+	print miat
+	print mex
 	print now
-	print $ maybe False (> now - 600) iat
-	print $ maybe False (> now) exp
-	let	Just (String n1) = lookup "nonce" pld
-	when (n1 /= n0) $ error "BAD NONCE"
-	when (iss /= Just (String "https://auth.login.yahoo.co.jp")) $
-		error "BAD ISS"
-	when (maybe True ((/= clientId) . ClientId) aud) $ error "BAD AUD"
-	when (maybe True (< now - 600) iat) $ error "BAD IAT"
-	when (maybe True (< now) exp) $ error "BAD EXP"
-	runDB . delete . from $ \sc -> do
-		where_ $ sc ^. OpenIdStateNonceState ==. val s0
-	let sg1	= fst . BSC.spanEnd (== '=') . hmacSha256 (csToBs clientSecret)
-		$ encodeUtf8 hd <> "." <> encodeUtf8 pl
-	when (sg1 /= encodeUtf8 sg) $ error "BAD SIGNATURE"
+	return $ check miss (maud, clientId)
+			(miat, mex, Now now) (mn1, Nonce0 n0)
+			(clientSecret, mhd, mpl, msg) (muid, mat)
 
-	return $ (,) <$> uid <*> at
+type M = Maybe
+
+check :: M Iss -> (M Aud, ClientId) -> (M Iat, M Exp, Now) ->
+	(M Nonce1, Nonce0) ->
+	(ClientSecret, M Header, M Payload, M Signature) ->
+	(M UserId, M AccessToken) ->
+	Either String (UserId, AccessToken)
+check miss (maud, cid) (miat, mex, now) (mn1, n0) (cs, mhd, mpl, msg)
+	(muid, mat) = do
+	(iss, aud, iat, ex, n1, hd, pl, sg, uid, at) <-
+		existence miss maud miat mex mn1 mhd mpl msg muid mat
+	checkGen iss (aud, cid)
+		(iat, ex, now) (n1, n0) (cs, hd, pl, sg) (uid, at)
+
+existence :: M Iss -> M Aud -> M Iat -> M Exp -> M Nonce1 -> M Header ->
+	M Payload -> M Signature -> M UserId -> M AccessToken ->
+	Either String (
+		Iss, Aud, Iat, Exp, Nonce1, Header, Payload, Signature,
+		UserId, AccessToken )
+existence miss maud miat mexp mn1 mhd mpl msg mui mat = do
+	iss <- maybe (Left "NO ISS") Right miss
+	aud <- maybe (Left "NO AUD") Right maud
+	iat <- maybe (Left "NO IAT") Right miat
+	ex <- maybe (Left "NO EXP") Right mexp
+	n1 <- maybe (Left "NO NONCE") Right mn1
+	hd <- maybe (Left "NO HEADER") Right mhd
+	pl <- maybe (Left "NO PAYLOAD") Right mpl
+	sg <- maybe (Left "NO SIGNATURE") Right msg
+	ui <- maybe (Left "NO USERID") Right mui
+	at <- maybe (Left "NO ACCESSTOKEN") Right mat
+	return (iss, aud, iat, ex, n1, hd, pl, sg, ui, at)
+
+checkGen :: Iss -> (Aud, ClientId) -> (Iat, Exp, Now) -> (Nonce1, Nonce0) ->
+	(ClientSecret, Header, Payload, Signature) ->
+	(UserId, AccessToken) ->
+	Either String (UserId, AccessToken)
+checkGen (Iss iss) (Aud aud, ClientId cid) (Iat iat, Exp ex, Now now)
+	(Nonce1 n1, Nonce0 n0)
+	(ClientSecret cs, Header hd, Payload pl, Signature sg)
+	(uid, at) = do
+	when (iss /= "https://auth.login.yahoo.co.jp") $ Left "BAD ISS"
+	when (aud /= cid) $ Left "BAD AUD"
+	when (iat < now - 600) $ Left "BAD IAT"
+	when (ex < now) $ Left "BAD EXP"
+	when (n1 /= n0) $ Left "BAD NONCE"
+	let sg1 = decodeUtf8
+		. fst . BSC.spanEnd (== '=') . hmacSha256 (encodeUtf8 cs)
+		$ encodeUtf8 hd <> "." <> encodeUtf8 pl
+	when (sg1 /= sg) $ Left "BAD SIGNATURE"
+	return (uid, at)
 
 basicAuthentication ::
 	IsString s => ClientId -> ClientSecret -> (s, [ByteString])
