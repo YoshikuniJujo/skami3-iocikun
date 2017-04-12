@@ -20,6 +20,8 @@ import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Crypto.Hash.Algorithms (SHA256)
 
 import Data.ByteArray
+import Data.Scientific
+import Data.Time.Clock.POSIX
 
 import Database.Esqueleto
 
@@ -76,17 +78,29 @@ logined code state = do
 			[padding hd, padding pl]
 		iss = HML.lookup "iss" pld
 		aud = unstring =<< HML.lookup "aud" pld
+		iat = fromRational . toRational
+			<$> (unnumber =<< HML.lookup "iat" pld)
+		exp = fromRational . toRational
+			<$> (unnumber =<< HML.lookup "exp" pld)
+	now <- lift getPOSIXTime
 	print hdd
 	print pld
 	print $ HML.lookup "user_id" pld
 	print iss
 	print aud
 	print clientId
+	print (iat :: Maybe POSIXTime)
+	print (exp :: Maybe POSIXTime)
+	print now
+	print $ maybe False (> now - 600) iat
+	print $ maybe False (> now) exp
 	let	Just (String n1) = lookup "nonce" pld
 	when (n1 /= n0) $ error "BAD NONCE"
 	when (iss /= Just (String "https://auth.login.yahoo.co.jp")) $
 		error "BAD ISS"
 	when (maybe True ((/= clientId) . ClientId) aud) $ error "BAD AUD"
+	when (maybe True (< now - 600) iat) $ error "BAD IAT"
+	when (maybe True (< now) exp) $ error "BAD EXP"
 	runDB . delete . from $ \sc -> do
 		where_ $ sc ^. OpenIdStateNonceState ==. val s0
 	let sg1	= fst . BSC.spanEnd (== '=') . hmacSha256 (csToBs clientSecret)
@@ -101,6 +115,10 @@ logined code state = do
 unstring :: Aeson.Value -> Maybe Text
 unstring (String t) = Just t
 unstring _ = Nothing
+
+unnumber :: Aeson.Value -> Maybe Scientific
+unnumber (Number n) = Just n
+unnumber _ = Nothing
 
 showPage :: Text -> Handler Html
 showPage yid = do

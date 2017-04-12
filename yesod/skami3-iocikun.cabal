@@ -101,6 +101,7 @@ library
                  , memory
                  , esqueleto
                  , filepath
+                 , scientific
 
 executable         skami3-iocikun
     if flag(library-only)
