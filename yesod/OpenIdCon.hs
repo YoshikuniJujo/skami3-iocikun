@@ -1,3 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module OpenIdCon (
 	yconnect,
 	Code(..),
@@ -10,7 +12,8 @@ module OpenIdCon (
 
 import Import hiding (UserId, (==.), delete, Header, check)
 
-import Data.Maybe (fromJust)
+import Control.Arrow (left)
+
 import Data.ByteArray
 import Data.Time.Clock.POSIX
 import Data.Scientific
@@ -20,6 +23,7 @@ import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Crypto.Hash.Algorithms (SHA256)
 import Database.Esqueleto hiding (on) -- (Value(..), (^.), val)
 
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Base64.URL as B64
@@ -38,22 +42,22 @@ yconnect (ClientId cid) (RedirectUri ruri) = do
 	_ <- runDB $ insert $ OpenIdStateNonce state nonce date
 	runDB (selectList ([] :: [Filter OpenIdStateNonce]) [])
 		>>= mapM_ print
-	yc state nonce
-	where
-	yc :: MonadHandler m => Text -> Text -> m a
-	yc stt nnc = redirect $
+	redirect $
 		"https://auth.login.yahoo.co.jp/yconnect/v1/authorization?" <>
 		"response_type=code+id_token&" <>
 		"scope=openid+profile+email&" <>
 		"client_id=" <> cid <> "&" <>
-		"state=" <> stt <> "&" <>
-		"nonce=" <> nnc <> "&" <>
+		"state=" <> state <> "&" <>
+		"nonce=" <> nonce <> "&" <>
 		"redirect_uri=" <> ruri <> "&" <>
 		"bail=1"
 
-newtype Code = Code Text
 newtype State = State Text
 newtype Nonce0 = Nonce0 Text
+newtype Code = Code Text
+
+codeToBs :: Code -> BS.ByteString
+codeToBs (Code c) = encodeUtf8 c
 
 newtype Iss = Iss Text deriving Show
 newtype Aud = Aud Text deriving Show
@@ -63,8 +67,26 @@ newtype Exp = Exp POSIXTime deriving Show
 newtype Nonce1 = Nonce1 Text deriving Show
 
 newtype Signature = Signature Text deriving Show
+
 newtype Header = Header Text deriving Show
 newtype Payload = Payload Text deriving Show
+
+headerToAeson :: Maybe Header -> Either String Aeson.Object
+headerToAeson (Just (Header t)) = toAeson t
+headerToAeson Nothing = Left "Can't get HEADER"
+
+payloadToAeson :: Maybe Payload -> Either String Aeson.Object
+payloadToAeson (Just (Payload t)) = toAeson t
+payloadToAeson Nothing = Left "Can't get PAYLOAD"
+
+toAeson :: Text -> Either String Aeson.Object
+toAeson t = do
+	b <- left ("B64.decode error: " ++)
+		. B64.decode . encodeUtf8 $ padding t
+	maybe (Left "Aeson.decode error") Right
+		. Aeson.decode $ LBS.fromStrict b
+
+newtype TokenType = TokenType Text deriving (Show, Eq)
 
 newtype UserId = UserId Text deriving Show
 newtype AccessToken = AccessToken Text deriving Show
@@ -83,7 +105,7 @@ logined code (State state) = do
 		_ -> return $ Left "No or Multiple state"
 
 loginedGen :: Code -> Nonce0 -> Handler (Either String (UserId, AccessToken))
-loginedGen (Code code) (Nonce0 n0) = do
+loginedGen code n0 = do
 	(clientId, clientSecret, redirectUri) <- lift $ (,,) 
 		<$> getClientId <*> getClientSecret <*> getRedirectUri
 	initReq <-
@@ -92,32 +114,37 @@ loginedGen (Code code) (Nonce0 n0) = do
 			initReq { method = "POST" } [
 			("Content-Type", ["application/x-www-form-urlencoded"]),
 			basicAuthentication clientId clientSecret ]
-		req' = setRequestBody (RequestBodyBS $
+		req' = (`setRequestBody` req) . RequestBodyBS $
 			"grant_type=authorization_code&" <>
-			"code=" <> encodeUtf8 code <> "&" <>
-			"redirect_uri=" <> ruToBs redirectUri) req
-	rBody <- getResponseBody <$> httpLBS req'
+			"code=" <> codeToBs code <> "&" <>
+			"redirect_uri=" <> ruToBs redirectUri
+	resp :: Maybe Aeson.Object <-
+		Aeson.decode . getResponseBody <$> httpLBS req'
+	let	ei = HML.lookup "expires_in" =<< resp
+		rt = HML.lookup "refresh_token" =<< resp
+	putStr "expires_in: "; print ei
+	putStr "refresh_token: "; print rt
+	let	tt = TokenType
+			<$> (unstring =<< HML.lookup "token_type" =<< resp)
+	now <- lift getPOSIXTime
+	return $ something tt clientId clientSecret n0 (Now now) =<<
+		maybe (Left "Can't decode to Aeson.Object") Right resp
 
-	let	Just resp = Aeson.decode rBody :: Maybe Aeson.Object
+something :: Maybe TokenType -> ClientId -> ClientSecret -> Nonce0 -> Now ->
+	HashMap Text Aeson.Value -> (Either String (UserId, AccessToken))
+something tt clientId clientSecret n0 now resp = do
+	let
 		mat = AccessToken
 			<$> (unstring =<< HML.lookup "access_token" resp)
-		Just (String it) = HML.lookup "id_token" resp
-		Just (String ei) = HML.lookup "expires_in" resp
-		Just (String tt) = HML.lookup "token_type" resp
-		Just (String rt) = HML.lookup "refresh_token" resp
-		(mhd_, mpl_, msg_) = case Txt.splitOn "." it of
-			[h, p, s] -> (Just h, Just p, Just s)
+		mit = unstring =<< HML.lookup "id_token" resp
+		(mhd, mpl, msg) = case Txt.splitOn "." <$> mit of
+			Just [h, p, s] -> (
+				Just $ Header h,
+				Just $ Payload p,
+				Just $ Signature s)
 			_ -> (Nothing, Nothing, Nothing)
-	print $ keys resp
-	print ei
-	print tt
-	print rt
-	let	[Just hdd, Just pld] = map
-			((Aeson.decode :: LBS.ByteString -> Maybe Aeson.Object)
-				. LBS.fromStrict
-				. either (error . ("B64.decode error " ++) . show) id
-				. B64.decode . encodeUtf8)
-			[padding $ fromJust mhd_, padding $ fromJust mpl_]
+	pld <- payloadToAeson mpl
+	let
 		miss = Iss <$> (unstring =<< HML.lookup "iss" pld)
 		maud = Aud <$> (unstring =<< HML.lookup "aud" pld)
 		miat = Iat . fromRational . toRational
@@ -125,23 +152,14 @@ loginedGen (Code code) (Nonce0 n0) = do
 		mex = Exp . fromRational . toRational
 			<$> (unnumber =<< HML.lookup "exp" pld)
 		mn1 = Nonce1 <$> (unstring =<< lookup "nonce" pld)
-		mhd = Header <$> mhd_
-		mpl = Payload <$> mpl_
-		msg = Signature <$> msg_
 		muid = UserId <$> (unstring =<< HML.lookup "user_id" pld)
-	now <- lift getPOSIXTime
-	print hdd
-	print pld
-	print muid
-	print miss
-	print maud
-	print clientId
-	print miat
-	print mex
-	print now
-	return $ check miss (maud, clientId)
-			(miat, mex, Now now) (mn1, Nonce0 n0)
-			(clientSecret, mhd, mpl, msg) (muid, mat)
+	hdd <- headerToAeson mhd
+	when (tt /= Just (TokenType "bearer")) $ Left "BAD TOKEN_TYPE"
+	when (hdd /= HML.fromList [
+		("alg", String "HS256"),
+		("typ", String "JWT") ]) $ Left "BAD HEADER"
+	check miss (maud, clientId) (miat, mex, now) (mn1, n0)
+		(clientSecret, mhd, mpl, msg) (muid, mat)
 
 type M = Maybe
 
