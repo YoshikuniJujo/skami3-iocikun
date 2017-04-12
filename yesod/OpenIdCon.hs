@@ -1,10 +1,11 @@
 module OpenIdCon (
 	yconnect,
+	UserId(..),
 	AccessToken(..),
 	debugProfile
 	) where
 
-import Import
+import Import hiding (UserId)
 
 import Crypto.Random
 
@@ -39,6 +40,8 @@ yconnect (ClientId cid) (RedirectUri ruri) = do
 		"nonce=" <> nnc <> "&" <>
 		"redirect_uri=" <> ruri <> "&" <>
 		"bail=1"
+
+newtype UserId = UserId Text deriving Show
 
 newtype AccessToken = AccessToken Text
 

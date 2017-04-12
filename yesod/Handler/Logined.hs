@@ -1,6 +1,6 @@
 module Handler.Logined where
 
-import Import hiding ((==.), delete)
+import Import hiding ((==.), delete, UserId)
 import Yesod.Form.Bootstrap3 (BootstrapFormLayout (..), renderBootstrap3)
 import Text.Julius (RawJS (..))
 
@@ -37,10 +37,11 @@ getLoginedR :: Handler Html
 getLoginedR = do
 	cs <- (\c s -> (,) <$> c <*> s)
 		<$> lookupGetParam "code" <*> lookupGetParam "state"
-	yourId <- maybe (return "unknown") (uncurry logined) cs
-	showPage yourId
+	ua <- maybe (return Nothing) (uncurry logined) cs
+	maybe (return ()) (debugProfile . snd) ua
+	showPage $ fst <$> ua
 
-logined :: Text -> Text -> Handler Text
+logined :: Text -> Text -> Handler (Maybe (UserId, AccessToken))
 logined code state = do
 	(clientId, clientSecret, redirectUri) <- lift $ (,,) 
 		<$> getClientId <*> getClientSecret <*> getRedirectUri
@@ -66,10 +67,17 @@ logined code state = do
 	rBody <- getResponseBody <$> httpLBS req'
 
 	let	Just resp = Aeson.decode rBody :: Maybe Aeson.Object
-		Just (String at) = HML.lookup "access_token" resp
+		at = AccessToken
+			<$> (unstring =<< HML.lookup "access_token" resp)
 		Just (String it) = HML.lookup "id_token" resp
+		Just (String ei) = HML.lookup "expires_in" resp
+		Just (String tt) = HML.lookup "token_type" resp
+		Just (String rt) = HML.lookup "refresh_token" resp
 		[hd, pl, sg] = Txt.splitOn "." it
 	print $ keys resp
+	print ei
+	print tt
+	print rt
 	let	[Just hdd, Just pld] = map
 			((Aeson.decode :: LBS.ByteString -> Maybe Aeson.Object)
 				. LBS.fromStrict
@@ -82,10 +90,11 @@ logined code state = do
 			<$> (unnumber =<< HML.lookup "iat" pld)
 		exp = fromRational . toRational
 			<$> (unnumber =<< HML.lookup "exp" pld)
+		uid = UserId <$> (unstring =<< HML.lookup "user_id" pld)
 	now <- lift getPOSIXTime
 	print hdd
 	print pld
-	print $ HML.lookup "user_id" pld
+	print uid
 	print iss
 	print aud
 	print clientId
@@ -107,9 +116,7 @@ logined code state = do
 		$ encodeUtf8 hd <> "." <> encodeUtf8 pl
 	when (sg1 /= encodeUtf8 sg) $ error "BAD SIGNATURE"
 
-	debugProfile $ AccessToken at
---	return "USER ID"
-	return . fromMaybe "Unknown" $ unstring =<< HML.lookup "user_id" pld
+	return $ (,) <$> uid <*> at
 
 
 unstring :: Aeson.Value -> Maybe Text
@@ -120,10 +127,10 @@ unnumber :: Aeson.Value -> Maybe Scientific
 unnumber (Number n) = Just n
 unnumber _ = Nothing
 
-showPage :: Text -> Handler Html
+showPage :: Maybe UserId -> Handler Html
 showPage yid = do
 	(formWidget, formEnctype) <- generateFormPost sampleForm
-	let	yourId = yid
+	let	yourId = Txt.pack $ show yid
 		submission = Nothing :: Maybe FileForm
 		handlerName = "getHomeR" :: Text
 	defaultLayout $ do
