@@ -1,6 +1,9 @@
 module Handler.Home where
 
-import Import
+import Import (
+	Handler, Html,
+	uncurry, lift, getClientId, getRedirectUri,
+	(=<<), (<$>), (<*>) )
 import OpenIdCon (yconnect)
 
 getHomeR :: Handler Html

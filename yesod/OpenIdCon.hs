@@ -1,14 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module OpenIdCon (
-	yconnect,
-	Code(..),
-	State(..),
-	UserId(..),
-	AccessToken(..),
-	debugProfile,
-	logined
-	) where
+	yconnect, logined, UserId, AccessToken, debugProfile ) where
 
 import Import hiding (UserId, (==.), delete, Header, check)
 
@@ -52,6 +45,12 @@ yconnect (ClientId cid) (RedirectUri ruri) = do
 		"redirect_uri=" <> ruri <> "&" <>
 		"bail=1"
 
+lookupGetCode :: MonadHandler f => f (Maybe Code)
+lookupGetCode = (Code <$>) <$> lookupGetParam "code"
+
+lookupGetState :: MonadHandler f => f (Maybe State)
+lookupGetState = (State <$>) <$> lookupGetParam "state"
+
 newtype State = State Text
 newtype Nonce0 = Nonce0 Text
 newtype Code = Code Text
@@ -91,8 +90,13 @@ newtype TokenType = TokenType Text deriving (Show, Eq)
 newtype UserId = UserId Text deriving Show
 newtype AccessToken = AccessToken Text deriving Show
 
-logined :: Code -> State -> Handler (Either String (UserId, AccessToken))
-logined code (State state) = do
+logined :: Handler (Either String (UserId, AccessToken))
+logined = do
+	cs <- (\c s -> (,) <$> c <*> s) <$> lookupGetCode <*> lookupGetState
+	maybe (return $ Left "no code or state") (uncurry logined_) cs
+
+logined_ :: Code -> State -> Handler (Either String (UserId, AccessToken))
+logined_ code (State state) = do
 	nonce <- runDB $ do
 		n <- select . from $ \sn -> do
 			where_ $ sn ^. OpenIdStateNonceState ==. val state
