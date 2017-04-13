@@ -103,6 +103,7 @@ library
                  , esqueleto
                  , filepath
                  , scientific
+                 , cookie
 
 executable         skami3-iocikun
     if flag(library-only)
