@@ -6,6 +6,8 @@
 
 / HomeR GET
 
+/ylogin YLoginR GET
+
 /comments CommentR POST
 
 /profile ProfileR GET

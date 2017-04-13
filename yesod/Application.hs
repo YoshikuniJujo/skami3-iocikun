@@ -38,6 +38,7 @@ import Handler.Common
 import Handler.Home
 import Handler.Comment
 import Handler.Profile
+import Handler.YLogin
 import Handler.Logined
 
 -- This line actually creates our YesodDispatch instance. It is the second half
