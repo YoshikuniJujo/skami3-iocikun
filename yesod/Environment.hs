@@ -7,7 +7,7 @@ module Environment (
 
 import Prelude ((.), (<$>), Show, Eq)
 
-import System.IO
+import System.IO (IO, FilePath)
 import System.FilePath ((</>))
 
 import Data.Text (Text)
@@ -33,7 +33,7 @@ newtype ClientSecret = ClientSecret Text
 
 getClientSecret :: IO ClientSecret
 getClientSecret = ClientSecret . Txt.concat . Txt.lines
-		<$> Txt.readFile (directory </> "clientSecret.txt")
+	<$> Txt.readFile (directory </> "clientSecret.txt")
 
 csToBs :: ClientSecret -> ByteString
 csToBs (ClientSecret t) = encodeUtf8 t
@@ -42,7 +42,7 @@ newtype RedirectUri = RedirectUri Text
 
 getRedirectUri :: IO RedirectUri
 getRedirectUri = RedirectUri . Txt.concat . Txt.lines
-		<$> Txt.readFile (directory </> "redirectUri.txt")
+	<$> Txt.readFile (directory </> "redirectUri.txt")
 
 ruToBs :: RedirectUri -> ByteString
 ruToBs (RedirectUri t) = encodeUtf8 t

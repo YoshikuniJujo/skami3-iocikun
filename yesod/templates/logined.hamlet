@@ -1,0 +1,10 @@
+<div .masthead>
+    <div .container>
+        <div .row>
+            <h1 .header>
+                SKAMI 3
+
+<h1 #start>Logined
+
+<p>
+    User ID: #{yourId}

@@ -30,7 +30,7 @@ showPage yid = do
 		let (commentFormId, commentTextareaId, commentListId) = commentIds
 		aDomId <- newIdent
 		setTitle "Welcome To Skami3!"
-		$(widgetFile "homepage")
+		$(widgetFile "logined")
 
 sampleForm :: Form FileForm
 sampleForm = renderBootstrap3 BootstrapBasicForm $ FileForm

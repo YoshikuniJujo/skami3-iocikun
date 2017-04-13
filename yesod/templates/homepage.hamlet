@@ -2,22 +2,22 @@
     <div .container>
         <div .row>
             <h1 .header>
-                SKAMI 3 Yey! Yey! Yey!
-            <h2>
-                Fast, stable & spiced with great community
-                OK! OK!
-                #{yourId}
-            <a href="http://www.yesodweb.com/book/" .btn.btn-info.btn-lg>
-                Read the Book
+                SKAMI 3
 
-<div .container>
+<h1 #start>Logined
+
+<p>
+    User ID: #{yourId}
+
+<!-- <div .container>
     <!-- Starting
         ================================================== -->
+<!--
     <div .bs-docs-section>
         <div .row>
             <div .col-lg-12>
                 <div .page-header>
-                    <h1 #start>Starting
+                    <h1 #start>Startinger
 
                     <p>
                         Now that you have a working project you should use the
@@ -57,8 +57,11 @@
 
     <hr>
 
+-->
+
     <!-- Forms
         ================================================== -->
+<!--
     <div .bs-docs-section>
         <div .row>
             <div .col-lg-12>
@@ -92,8 +95,11 @@
 
     <hr>
 
+    -->
+
     <!-- JSON
         ================================================== -->
+<!--
     <div .bs-docs-section>
         <div .row>
             <div .col-lg-12>
@@ -126,8 +132,11 @@
 
     <hr>
 
+-->
+
     <!-- Testing
        ================================================== -->
+<!--
     <div .bs-docs-section>
        <div .row>
            <div .col-lg-12>
@@ -139,3 +148,4 @@
                        test suite that performs tests on this page.
                    <p>
                        You can run your tests by doing: <code>stack test</code>
+-->
