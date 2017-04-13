@@ -7,11 +7,11 @@ import Import (
 	($), (.), (<$>),
 	const, fst, snd, either, show, return,
 	setTitle, defaultLayout, widgetFile )
-import OpenIdCon (UserId, logined, debugProfile)
+import OpenIdCon (UserId, authenticate, debugProfile)
 
 getLoginedR :: Handler Html
 getLoginedR = do
-	ua <- logined
+	ua <- authenticate
 	either (const $ return ()) (debugProfile . snd) ua
 	showPage $ fst <$> ua
 

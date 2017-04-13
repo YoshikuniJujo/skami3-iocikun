@@ -1,9 +1,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module OpenIdCon (
-	yconnect, logined, UserId, AccessToken, debugProfile ) where
+	UserId, AccessToken, yconnect, authenticate, debugProfile ) where
 
-import Import hiding (UserId, (==.), delete, Header, check)
+import Import hiding (UserId, (==.), delete, Header, check, authenticate)
 
 import Control.Arrow (left)
 
@@ -90,7 +90,9 @@ newtype TokenType = TokenType Text deriving (Show, Eq)
 newtype UserId = UserId Text deriving Show
 newtype AccessToken = AccessToken Text deriving Show
 
-logined :: Handler (Either String (UserId, AccessToken))
+authenticate, logined :: Handler (Either String (UserId, AccessToken))
+authenticate = logined
+
 logined = do
 	cs <- (\c s -> (,) <$> c <*> s) <$> lookupGetCode <*> lookupGetState
 	maybe (return $ Left "no code or state") (uncurry logined_) cs

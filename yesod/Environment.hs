@@ -1,5 +1,4 @@
 module Environment (
-	directory,
 	ClientId(..), getClientId, cidToBs,
 	ClientSecret(..), getClientSecret, csToBs,
 	RedirectUri(..), getRedirectUri, ruToBs
@@ -10,12 +9,12 @@ import Prelude ((.), (<$>), Show, Eq)
 import System.IO (IO, FilePath)
 import System.FilePath ((</>))
 
+import Data.ByteString (ByteString)
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
+
 import qualified Data.Text as Txt
 import qualified Data.Text.IO as Txt
-
-import Data.ByteString (ByteString)
 
 directory :: FilePath
 directory = "/home/tatsuya/keter/skami3/"
