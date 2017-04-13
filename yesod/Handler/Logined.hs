@@ -1,23 +1,40 @@
 module Handler.Logined (getLoginedR) where
 
+import Data.Maybe (fromMaybe)
 import qualified Data.Text as Txt
 
 import Import (
-	Either, String, Handler, Html,
-	($), (.), (<$>),
-	const, fst, snd, either, show, return,
+	String, Handler, Html,
+	($), (.), (<$>), (=<<),
+	const, snd, uncurry, maybe, either,
+	return, mapM_, show, putStrLn,
 	setTitle, defaultLayout, widgetFile )
-import OpenIdCon (UserId, authenticate, debugProfile)
+import OpenIdCon (
+	UserId, AccessToken, authenticate, getProfile, showProfile, lookup )
 
 getLoginedR :: Handler Html
 getLoginedR = do
 	ua <- authenticate
 	either (const $ return ()) (debugProfile . snd) ua
-	showPage $ fst <$> ua
+	either showErrorPage (uncurry showPage) ua
 
-showPage :: Either String UserId -> Handler Html
-showPage yid = do
+debugProfile :: AccessToken -> Handler ()
+debugProfile at = maybe (return ()) (mapM_ putStrLn)
+	=<< (showProfile <$>) <$> getProfile at
+
+showPage :: UserId -> AccessToken -> Handler Html
+showPage yid at = do
 	let	yourId = Txt.pack $ show yid
+	prf <- getProfile at
+	let	yourName = fromMaybe "" $ lookup "name" =<< prf
+		emailAddress = fromMaybe "" $ lookup "email" =<< prf
 	defaultLayout $ do
 		setTitle "Welcome To Skami3!"
 		$(widgetFile "logined")
+
+showErrorPage :: String -> Handler Html
+showErrorPage em = do
+	let	errorMessage = Txt.pack em
+	defaultLayout $ do
+		setTitle "Can't login"
+		$(widgetFile "cantLogin")

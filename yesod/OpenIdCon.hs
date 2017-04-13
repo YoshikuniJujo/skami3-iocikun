@@ -1,9 +1,12 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module OpenIdCon (
-	UserId, AccessToken, yconnect, authenticate, debugProfile ) where
+	UserId, AccessToken,
+	yconnect, authenticate,
+	getProfile, showProfile, lookup ) where
 
-import Import hiding (UserId, (==.), delete, Header, check, authenticate)
+import Import hiding (
+	UserId, (==.), delete, Header, check, authenticate, lookup)
 
 import Control.Arrow (left)
 
@@ -157,7 +160,7 @@ something tt clientId clientSecret n0 now resp = do
 			<$> (unnumber =<< HML.lookup "iat" pld)
 		mex = Exp . fromRational . toRational
 			<$> (unnumber =<< HML.lookup "exp" pld)
-		mn1 = Nonce1 <$> (unstring =<< lookup "nonce" pld)
+		mn1 = Nonce1 <$> (unstring =<< HML.lookup "nonce" pld)
 		muid = UserId <$> (unstring =<< HML.lookup "user_id" pld)
 	hdd <- headerToAeson mhd
 	when (tt /= Just (TokenType "bearer")) $ Left "BAD TOKEN_TYPE"
@@ -237,16 +240,23 @@ hmacSha256 s d = B64.encode . convert $ hmacGetDigest (hmac s d :: HMAC SHA256)
 padding :: Text -> Text
 padding t = t <> Txt.replicate (3 - (Txt.length t - 1) `mod` 4) "="
 
-debugProfile :: AccessToken -> Handler ()
-debugProfile (AccessToken at) = do
-	initReq <- parseRequest $
-		"https://userinfo.yahooapis.jp/yconnect/v1/attribute?schema=openid"
-	let	req = setRequestHeader
-			"Authorization" ["Bearer " <> encodeUtf8 at] initReq
-	rBody <- getResponseBody <$> httpLBS req
-	let	Just json = Aeson.decode rBody :: Maybe Aeson.Object
-	mapM_ putStrLn . map showSimple . sortBy (compare `on` fst) $ HML.toList json
+showProfile :: HashMap Text Aeson.Value -> [Text]
+showProfile json =
+	map showSimple . sortBy (compare `on` fst) . HML.toList $ json
 	where
 	showSimple :: (Text, Aeson.Value) -> Text
 	showSimple (k, String v) = k <> ": " <> v
 	showSimple (k, v) = k <> ": " <> Txt.pack (show v)
+
+getProfile ::
+	(MonadIO m, MonadThrow m) => AccessToken -> m (Maybe Aeson.Object)
+getProfile (AccessToken at) = do
+	initReq <- parseRequest $
+		"https://userinfo.yahooapis.jp/yconnect/v1/attribute?" <>
+		"schema=openid"
+	let	req = setRequestHeader
+			"Authorization" ["Bearer " <> encodeUtf8 at] initReq
+	rBody <- getResponseBody <$> httpLBS req
+	return (Aeson.decode rBody :: Maybe Aeson.Object)
+
+lookup k = (unstring =<<) . HML.lookup k

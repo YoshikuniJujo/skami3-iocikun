@@ -6,5 +6,7 @@
 
 <h1 #start>Logined
 
-<p>
-    User ID: #{yourId}
+<p><ul>
+    <li>User ID: #{yourId}
+    <li>User Name: #{yourName}
+    <li>Email Address: #{emailAddress}

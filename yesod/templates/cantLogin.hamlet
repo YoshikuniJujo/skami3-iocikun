@@ -1,0 +1,10 @@
+<div .masthead>
+    <div .container>
+        <div .row>
+            <h1 .header>
+                SKAMI 3
+
+<h1 #start>Can't Login
+
+<p>
+    error message: #{errorMessage}
