@@ -3,24 +3,36 @@ module Handler.Home where
 import Import (
 	Handler, Html,
 	($), (>>=), (=<<), (<$>), (<*>),
-	Maybe(..), uncurry, lift, print,
+	Bool(..), Maybe(..), uncurry, lift, show, print,
 	getClientId, getRedirectUri,
 	widgetFile, defaultLayout, setTitle,
 	lookupSession, setSession,
 	lookupCookie, setCookie, def,
 	Route(..))
 
-import Web.Cookie (SetCookie(..))
+import Web.Cookie (SetCookie(..), sameSiteStrict)
 
 getHomeR :: Handler Html
 getHomeR = do
 	lookupSession "hoge" >>= print
 	setSession "hoge" "hige"
-	lookupCookie "hoge" >>= print
+	hoge <- show <$> lookupCookie "hoge"
+	print hoge
 	setCookie def {
 		setCookieName = "hoge",
 		setCookieValue = "hidebu",
-		setCookieMaxAge = Just 10 }
+		setCookiePath = Just "/",
+		setCookieExpires = Nothing,
+		setCookieMaxAge = Just 10,
+		setCookieDomain = Nothing,
+		setCookieHttpOnly = True,
+#ifdef DEVELOPMENT
+		setCookieSecure = False,
+#else
+		setCookieSecure = True,
+#endif
+		setCookieSameSite = Just sameSiteStrict
+		}
 	defaultLayout $ do
 		setTitle "Welcome To Skami3!"
 		$(widgetFile "homepage")

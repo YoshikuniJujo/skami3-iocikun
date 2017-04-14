@@ -8,3 +8,7 @@
 
 <p>
     <a href="/ylogin">Yahoo! JAPAN IDでログイン
+
+<h1>Cookie
+<ul>
+    <li>hoge: #{hoge}
