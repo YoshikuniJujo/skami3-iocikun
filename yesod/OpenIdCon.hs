@@ -4,10 +4,10 @@ module OpenIdCon (
 	UserId, AccessToken,
 	yconnect, authenticate,
 	getProfile, showProfile, lookup,
-	makeSession, makeAutoLogin ) where
+	makeSession, makeAutoLogin, updateAutoLogin ) where
 
 import Import hiding (
-	UserId, (==.), delete, Header, check, authenticate, lookup)
+	UserId, (==.), delete, Header, check, authenticate, lookup, (=.), update)
 
 import Control.Arrow (left)
 
@@ -30,9 +30,11 @@ import qualified Data.HashMap.Lazy as HML
 
 import Web.Cookie (SetCookie(..), sameSiteStrict)
 
+{-
 getNonce :: MonadRandom m => Int -> m Text
 getNonce = (Txt.dropWhileEnd (== '=') . decodeUtf8 . B64.encode <$>)
 	. getRandomBytes
+	-}
 
 yconnect :: ClientId -> RedirectUri -> Handler Html
 yconnect (ClientId cid) (RedirectUri ruri) = do

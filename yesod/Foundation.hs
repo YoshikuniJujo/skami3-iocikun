@@ -1,6 +1,6 @@
 module Foundation where
 
-import Import.NoFoundation hiding ((==.))
+import Import.NoFoundation hiding ((==.), (=.), update)
 import Database.Persist.Sql (ConnectionPool, runSqlPool)
 import Text.Hamlet          (hamletFile)
 import Text.Jasmine         (minifym)
@@ -18,6 +18,9 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text as Txt
 
 import Database.Esqueleto hiding (isNothing)
+import Web.Cookie (SetCookie(..), sameSiteStrict)
+import qualified Data.ByteString.Base64.URL as B64
+import Crypto.Random
 
 -- | The foundation datatype for your application. This can be a good place to
 -- keep settings and values requiring initialization before your application
@@ -130,16 +133,27 @@ instance Yesod App where
         -- you to use normal widget features in default-layout.
 
 	session <- lookupCookie "session"
-	autoLogin <- show . (Txt.take 15 <$>) <$> lookupCookie "auto-login"
+	autoLogin <- lookupCookie "auto-login"
 
-	uid_ <- flip (maybe $ return []) session $ \ssn ->
+	let hoge = "hige" :: String
+
+	uid1 <- flip (maybe $ return []) session $ \ssn ->
 		runDB $ select . from $ \s -> do
 			where_ $ s ^. SessionSession ==. (val ssn)
 			return $ s ^. SessionUserId
 
-	let	userId = case uid_ of
-			[Value u] -> u
-			_ -> ""
+	userId <- case uid1 of
+		[Value u] -> return u
+		_ -> do	uid2 <- flip (maybe $ return []) autoLogin $ \al ->
+				runDB $ select . from $ \a -> do
+					where_ $ a ^. AutoLoginAutoLogin ==.
+						(val al)
+					return $ a ^. AutoLoginUserId
+			case uid2 of
+				[Value u'] -> do
+					updateAutoLogin u'
+					return u'
+				_ -> return ("" :: Text)
 
         pc <- widgetToPageContent $ do
             addStylesheet $ StaticR css_bootstrap_css
@@ -266,3 +280,30 @@ unsafeHandler = Unsafe.fakeHandlerGetLogger appLogger
 -- https://github.com/yesodweb/yesod/wiki/Sending-email
 -- https://github.com/yesodweb/yesod/wiki/Serve-static-files-from-a-separate-domain
 -- https://github.com/yesodweb/yesod/wiki/i18n-messages-in-the-scaffolding
+
+updateAutoLogin :: Text -> Handler ()
+updateAutoLogin uid = do
+	al <- lift (getNonce 512)
+	_ <- runDB $ do
+		update $ \a -> do
+			set a [ AutoLoginAutoLogin =. val al ]
+			where_ (a ^. AutoLoginUserId ==. val uid)
+	setCookie def {
+		setCookieName = "auto-login",
+		setCookieValue = encodeUtf8 al,
+		setCookiePath = Just "/",
+		setCookieExpires = Nothing,
+		setCookieMaxAge = Just 2592000,
+		setCookieDomain = Nothing,
+		setCookieHttpOnly = True,
+#ifdef DEVELOPMENT
+		setCookieSecure = False,
+#else
+		setCookieSecure = True,
+#endif
+		setCookieSameSite = Just sameSiteStrict
+		}
+
+getNonce :: MonadRandom m => Int -> m Text
+getNonce = (Txt.dropWhileEnd (== '=') . decodeUtf8 . B64.encode <$>)
+	. getRandomBytes
