@@ -3,7 +3,8 @@
 module OpenIdCon (
 	UserId, AccessToken,
 	yconnect, authenticate,
-	getProfile, showProfile, lookup ) where
+	getProfile, showProfile, lookup,
+	makeSession ) where
 
 import Import hiding (
 	UserId, (==.), delete, Header, check, authenticate, lookup)
@@ -26,6 +27,8 @@ import qualified Data.ByteString.Base64.URL as B64
 import qualified Data.Text as Txt
 import qualified Data.Aeson as Aeson
 import qualified Data.HashMap.Lazy as HML
+
+import Web.Cookie (SetCookie(..), sameSiteStrict)
 
 getNonce :: MonadRandom m => Int -> m Text
 getNonce = (Txt.dropWhileEnd (== '=') . decodeUtf8 . B64.encode <$>)
@@ -259,4 +262,24 @@ getProfile (AccessToken at) = do
 	rBody <- getResponseBody <$> httpLBS req
 	return (Aeson.decode rBody :: Maybe Aeson.Object)
 
+lookup :: (Hashable k, Eq k) => k -> HashMap k Aeson.Value -> Maybe Text
 lookup k = (unstring =<<) . HML.lookup k
+
+makeSession :: (MonadHandler (t m), MonadRandom m, MonadTrans t) => t m ()
+makeSession = do
+	ssn <- encodeUtf8 <$> lift (getNonce 256)
+	setCookie def {
+		setCookieName = "session",
+		setCookieValue = ssn,
+		setCookiePath = Just "/",
+		setCookieExpires = Nothing,
+		setCookieMaxAge = Just 10,
+		setCookieDomain = Nothing,
+		setCookieHttpOnly = True,
+#ifdef DEVELOPMENT
+		setCookieSecure = False,
+#else
+		setCookieSecure = True,
+#endif
+		setCookieSameSite = Just sameSiteStrict
+		}

@@ -15,6 +15,8 @@ import qualified Yesod.Core.Unsafe as Unsafe
 import qualified Data.CaseInsensitive as CI
 import qualified Data.Text.Encoding as TE
 
+import qualified Data.Text as Txt
+
 -- | The foundation datatype for your application. This can be a good place to
 -- keep settings and values requiring initialization before your application
 -- starts running, such as database connections. Every handler will have
@@ -124,6 +126,8 @@ instance Yesod App where
         -- default-layout-wrapper is the entire page. Since the final
         -- value passed to hamletToRepHtml cannot be a widget, this allows
         -- you to use normal widget features in default-layout.
+
+	session <- show . (Txt.take 15 <$>) <$> lookupCookie "session"
 
         pc <- widgetToPageContent $ do
             addStylesheet $ StaticR css_bootstrap_css
