@@ -6,7 +6,7 @@ import qualified Data.Text as Txt
 import Import (
 	String, Handler, Html,
 	($), (.), (<$>), (=<<),
-	const, snd, uncurry, maybe, either,
+	const, fst, snd, uncurry, maybe, either,
 	return, mapM_, show, putStrLn,
 	setTitle, defaultLayout, widgetFile )
 import OpenIdCon (
@@ -17,8 +17,8 @@ getLoginedR :: Handler Html
 getLoginedR = do
 	ua <- authenticate
 	either (const $ return ()) (debugProfile . snd) ua
-	makeSession
-	makeAutoLogin
+	either (const $ return ()) (makeSession . fst) ua
+	either (const $ return ()) (makeAutoLogin . fst) ua
 	either showErrorPage (uncurry showPage) ua
 
 debugProfile :: AccessToken -> Handler ()

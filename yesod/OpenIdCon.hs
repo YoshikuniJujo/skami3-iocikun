@@ -265,12 +265,14 @@ getProfile (AccessToken at) = do
 lookup :: (Hashable k, Eq k) => k -> HashMap k Aeson.Value -> Maybe Text
 lookup k = (unstring =<<) . HML.lookup k
 
-makeSession :: (MonadHandler (t m), MonadRandom m, MonadTrans t) => t m ()
-makeSession = do
-	ssn <- encodeUtf8 <$> lift (getNonce 256)
+makeSession :: UserId -> Handler ()
+makeSession (UserId uid) = do
+	ssn <- lift (getNonce 256)
+	now <- liftIO getCurrentTime
+	_ <- runDB . insert $ Session ssn uid now
 	setCookie def {
 		setCookieName = "session",
-		setCookieValue = ssn,
+		setCookieValue = encodeUtf8 ssn,
 		setCookiePath = Just "/",
 		setCookieExpires = Nothing,
 		setCookieMaxAge = Just 1800,
@@ -284,12 +286,14 @@ makeSession = do
 		setCookieSameSite = Just sameSiteStrict
 		}
 
-makeAutoLogin :: (MonadHandler (t m), MonadRandom m, MonadTrans t) => t m ()
-makeAutoLogin = do
-	al <- encodeUtf8 <$> lift (getNonce 512)
+makeAutoLogin :: UserId -> Handler ()
+makeAutoLogin (UserId uid) = do
+	al <- lift (getNonce 512)
+	now <- liftIO getCurrentTime
+	_ <- runDB . insert $ AutoLogin al uid now
 	setCookie def {
 		setCookieName = "auto-login",
-		setCookieValue = al,
+		setCookieValue = encodeUtf8 al,
 		setCookiePath = Just "/",
 		setCookieExpires = Nothing,
 		setCookieMaxAge = Just 2592000,

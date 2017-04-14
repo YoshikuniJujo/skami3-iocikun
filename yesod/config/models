@@ -3,11 +3,13 @@ User
     password Text Maybe
     UniqueUser ident
     deriving Typeable
+
 Email
     email Text
     userId UserId Maybe
     verkey Text Maybe
     UniqueEmail email
+
 Comment json -- Adding "json" causes ToJSON and FromJSON instances to be derived.
     message Text
     userId UserId Maybe
@@ -17,6 +19,18 @@ Comment json -- Adding "json" causes ToJSON and FromJSON instances to be derived
 OpenIdStateNonce
     state Text
     nonce Text
+    date UTCTime
+    deriving Show
+
+Session
+    session Text
+    userId Text
+    date UTCTime
+    deriving Show
+
+AutoLogin
+    autoLogin Text
+    userId Text
     date UTCTime
     deriving Show
 
