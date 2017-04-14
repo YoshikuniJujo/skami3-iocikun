@@ -7,8 +7,6 @@
 <h1 #start>Home
 
 <p>
-    <a href="/ylogin">Yahoo! JAPAN IDでログイン
-
-<h1>Cookie
-<ul>
-    <li>hoge: #{hoge}
+    $if null uid2
+      <a href="/ylogin">Yahoo! JAPAN IDでログイン
+    $else

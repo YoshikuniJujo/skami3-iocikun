@@ -4,11 +4,11 @@ import Data.Maybe (fromMaybe)
 import qualified Data.Text as Txt
 
 import Import (
-	String, Handler, Html,
+	String, Text, Handler, Html,
 	($), (.), (<$>), (=<<),
 	const, fst, snd, uncurry, maybe, either,
 	return, mapM_, show, putStrLn,
-	setTitle, defaultLayout, widgetFile )
+	setTitle, defaultLayout, widgetFile, redirect )
 import OpenIdCon (
 	UserId, AccessToken, authenticate, getProfile, showProfile, lookup,
 	makeSession, makeAutoLogin )
@@ -19,7 +19,8 @@ getLoginedR = do
 	either (const $ return ()) (debugProfile . snd) ua
 	either (const $ return ()) (makeSession . fst) ua
 	either (const $ return ()) (makeAutoLogin . fst) ua
-	either showErrorPage (uncurry showPage) ua
+	redirect ("/" :: Text)
+--	either showErrorPage (uncurry showPage) ua
 
 debugProfile :: AccessToken -> Handler ()
 debugProfile at = maybe (return ()) (mapM_ putStrLn)
