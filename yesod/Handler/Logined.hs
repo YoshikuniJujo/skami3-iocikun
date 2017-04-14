@@ -4,17 +4,16 @@ module Handler.Logined (getLoginedR) where
 
 import Prelude (read)
 
-import Data.Maybe (fromMaybe)
 import qualified Data.Text as Txt
 
 import Import (
-	Maybe, String, Int, Text, Handler, Html,
+	Maybe, Int, Text, Handler, Html,
 	($), (.), (<$>), (<*>), (=<<),
-	const, flip, fst, snd, uncurry, maybe, either, print,
-	return, mapM_, show, putStrLn,
-	setTitle, defaultLayout, widgetFile, redirect, runDB )
+	const, flip, fst, snd, maybe, either, print,
+	return, mapM_, putStrLn,
+	redirect, runDB )
 import OpenIdCon (
-	UserId, AccessToken, authenticate, getProfile, showProfile, lookup,
+	AccessToken, authenticate, getProfile, showProfile, lookup,
 	makeSession, makeAutoLogin )
 
 import Model (Profile(..), EntityField(ProfileUserId))
@@ -28,19 +27,19 @@ getLoginedR = do
 	either (const $ return ()) (makeAutoLogin . fst) ua
 	either (const $ return ()) (setProfile . snd) ua
 	redirect ("/" :: Text)
---	either showErrorPage (uncurry showPage) ua
 
 setProfile :: AccessToken -> Handler ()
 setProfile at = do
-	prf <- getProfile at
-	print prf
-	let	uid = lookup "user_id" =<< prf
-		n = lookup "name" =<< prf
-		fn = lookup "family_name" =<< prf
-		gn = lookup "given_name" =<< prf
-		gd = lookup "gender" =<< prf
-		bd :: Maybe Int = read . Txt.unpack <$> (lookup "birthday" =<< prf)
-		em = lookup "email" =<< prf
+	profile <- getProfile at
+	print profile
+	let	uid = lookup "user_id" =<< profile
+		n = lookup "name" =<< profile
+		fn = lookup "family_name" =<< profile
+		gn = lookup "given_name" =<< profile
+		gd = lookup "gender" =<< profile
+		bd :: Maybe Int = read . Txt.unpack
+			<$> (lookup "birthday" =<< profile)
+		em = lookup "email" =<< profile
 	maybe (return ()) putStrLn uid
 	maybe (return ()) putStrLn n
 	maybe (return ()) putStrLn fn
@@ -57,20 +56,3 @@ setProfile at = do
 debugProfile :: AccessToken -> Handler ()
 debugProfile at = maybe (return ()) (mapM_ putStrLn)
 	=<< (showProfile <$>) <$> getProfile at
-
-showPage :: UserId -> AccessToken -> Handler Html
-showPage yid at = do
-	let	yourId = Txt.pack $ show yid
-	prf <- getProfile at
-	let	yourName = fromMaybe "" $ lookup "name" =<< prf
-		emailAddress = fromMaybe "" $ lookup "email" =<< prf
-	defaultLayout $ do
-		setTitle "Welcome To Skami3!"
-		$(widgetFile "logined")
-
-showErrorPage :: String -> Handler Html
-showErrorPage em = do
-	let	errorMessage = Txt.pack em
-	defaultLayout $ do
-		setTitle "Can't login"
-		$(widgetFile "cantLogin")

@@ -22,6 +22,8 @@ import Web.Cookie (SetCookie(..), sameSiteStrict)
 import qualified Data.ByteString.Base64.URL as B64
 import Crypto.Random
 
+import MyDefault
+
 -- | The foundation datatype for your application. This can be a good place to
 -- keep settings and values requiring initialization before your application
 -- starts running, such as database connections. Every handler will have
@@ -83,59 +85,13 @@ instance Yesod App where
     --   a) Sets a cookie with a CSRF token in it.
     --   b) Validates that incoming write requests include that token in either a header or POST parameter.
     -- To add it, chain it together with the defaultMiddleware: yesodMiddleware = defaultYesodMiddleware . defaultCsrfMiddleware
-    -- For details, see the CSRF documentation in the Yesod.Core.Handler module of the yesod-core package.
+    -- For details, see the CSRF documentation in the Yesod.Core.Handler module of the yesod-core package.-
     yesodMiddleware = defaultYesodMiddleware
 
     defaultLayout widget = do
         master <- getYesod
-        mmsg <- getMessage
-
-        muser <- maybeAuthPair
-        mcurrentRoute <- getCurrentRoute
-
-        -- Get the breadcrumbs, as defined in the YesodBreadcrumbs instance.
-        (title, parents) <- breadcrumbs
-
-        -- Define the menu items of the header.
-        let menuItems =
-                [ NavbarLeft $ MenuItem
-                    { menuItemLabel = "Home"
-                    , menuItemRoute = HomeR
-                    , menuItemAccessCallback = True
-                    }
-                , NavbarLeft $ MenuItem
-                    { menuItemLabel = "Profile"
-                    , menuItemRoute = ProfileR
-                    , menuItemAccessCallback = isJust muser
-                    }
-                , NavbarRight $ MenuItem
-                    { menuItemLabel = "Login"
-                    , menuItemRoute = AuthR LoginR
-                    , menuItemAccessCallback = isNothing muser
-                    }
-                , NavbarRight $ MenuItem
-                    { menuItemLabel = "Logout"
-                    , menuItemRoute = AuthR LogoutR
-                    , menuItemAccessCallback = isJust muser
-                    }
-                ]
-
-        let navbarLeftMenuItems = [x | NavbarLeft x <- menuItems]
-        let navbarRightMenuItems = [x | NavbarRight x <- menuItems]
-
-        let navbarLeftFilteredMenuItems = [x | x <- navbarLeftMenuItems, menuItemAccessCallback x]
-        let navbarRightFilteredMenuItems = [x | x <- navbarRightMenuItems, menuItemAccessCallback x]
-
-        -- We break up the default layout into two components:
-        -- default-layout is the contents of the body tag, and
-        -- default-layout-wrapper is the entire page. Since the final
-        -- value passed to hamletToRepHtml cannot be a widget, this allows
-        -- you to use normal widget features in default-layout.
-
 	session <- lookupCookie "session"
 	autoLogin <- lookupCookie "auto-login"
-
-	let hoge = "hige" :: String
 
 	uid1 <- flip (maybe $ return []) session $ \ssn ->
 		runDB $ select . from $ \s -> do
@@ -160,9 +116,9 @@ instance Yesod App where
 			where_ $ p ^. ProfileUserId ==. val u
 			return $ p ^. ProfileName
 	print names
-	let	(userId, loginOut, loginOutLn) = case mUserId of
-			Just u -> (u, "logout" :: Text, "/ylogout" :: Text)
-			Nothing -> ("", "login", "/ylogin")
+	let	(loginOut, loginOutLn) = case mUserId of
+			Just _ -> ("logout" :: Text, "/ylogout" :: Text)
+			Nothing -> ("login", "/ylogin")
 		userName = case names of
 			[Value n] -> n
 			_ -> "ゲスト"

@@ -2,17 +2,11 @@ module Handler.Home where
 
 import Import (
 	Handler, Html,
-	($), (.), (>>=), (=<<), (<$>), (<*>),
-	Bool(..), Maybe(..), uncurry, flip, maybe, lift, show, print, return,
-	getClientId, getRedirectUri,
+	($), (.),
+	flip, maybe, print, return,
 	widgetFile, defaultLayout, setTitle,
-	lookupSession, setSession,
-	lookupCookie, setCookie, def, runDB, hamlet, null,
-	Route(..) )
-
-import Web.Cookie (SetCookie(..), sameSiteStrict)
-
-import qualified Data.Text as Txt
+	lookupCookie, runDB, null,
+	)
 
 import Model
 import Database.Esqueleto
