@@ -14,6 +14,9 @@ getYLogoutR = do
 	flip (maybe $ return ()) autoLogin $ \al -> runDB $ do
 		delete . from $ \a -> do
 			where_ $ a ^. AutoLoginAutoLogin ==. val al
+	redirect ("/" :: Text)
+			{-
 	defaultLayout $ do
 		setTitle "Welcome To Skami3!"
 		$(widgetFile "ylogout")
+		-}
