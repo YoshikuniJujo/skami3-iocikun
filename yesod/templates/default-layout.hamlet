@@ -1,5 +1,5 @@
 <div class="header_bar">
-    <div class="user_name">#{session}
+    <div class="user_name">#{userId}
     <div class="login_logout">#{autoLogin}
 
 <!-- Static navbar -->

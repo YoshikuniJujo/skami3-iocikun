@@ -1,6 +1,6 @@
 module Foundation where
 
-import Import.NoFoundation
+import Import.NoFoundation hiding ((==.))
 import Database.Persist.Sql (ConnectionPool, runSqlPool)
 import Text.Hamlet          (hamletFile)
 import Text.Jasmine         (minifym)
@@ -16,6 +16,8 @@ import qualified Data.CaseInsensitive as CI
 import qualified Data.Text.Encoding as TE
 
 import qualified Data.Text as Txt
+
+import Database.Esqueleto hiding (isNothing)
 
 -- | The foundation datatype for your application. This can be a good place to
 -- keep settings and values requiring initialization before your application
@@ -127,8 +129,17 @@ instance Yesod App where
         -- value passed to hamletToRepHtml cannot be a widget, this allows
         -- you to use normal widget features in default-layout.
 
-	session <- show . (Txt.take 15 <$>) <$> lookupCookie "session"
+	session <- lookupCookie "session"
 	autoLogin <- show . (Txt.take 15 <$>) <$> lookupCookie "auto-login"
+
+	uid_ <- flip (maybe $ return []) session $ \ssn ->
+		runDB $ select . from $ \s -> do
+			where_ $ s ^. SessionSession ==. (val ssn)
+			return $ s ^. SessionUserId
+
+	let	userId = case uid_ of
+			[Value u] -> u
+			_ -> ""
 
         pc <- widgetToPageContent $ do
             addStylesheet $ StaticR css_bootstrap_css
