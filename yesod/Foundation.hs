@@ -1,6 +1,6 @@
 module Foundation where
 
-import Import.NoFoundation hiding ((==.), (=.), update)
+import Import.NoFoundation hiding ((==.), (=.), update, delete)
 import Database.Persist.Sql (ConnectionPool, runSqlPool)
 import Text.Hamlet          (hamletFile)
 import Text.Jasmine         (minifym)
@@ -151,6 +151,7 @@ instance Yesod App where
 					return $ a ^. AutoLoginUserId
 			case uid2 of
 				[Value u'] -> do
+					makeSession u'
 					updateAutoLogin u'
 					return u'
 				_ -> return ("" :: Text)
@@ -280,6 +281,30 @@ unsafeHandler = Unsafe.fakeHandlerGetLogger appLogger
 -- https://github.com/yesodweb/yesod/wiki/Sending-email
 -- https://github.com/yesodweb/yesod/wiki/Serve-static-files-from-a-separate-domain
 -- https://github.com/yesodweb/yesod/wiki/i18n-messages-in-the-scaffolding
+
+makeSession :: Text -> Handler ()
+makeSession uid = do
+	ssn <- lift (getNonce 256)
+	now <- liftIO getCurrentTime
+	_ <- runDB $ do
+		delete . from $ \s ->
+			where_ $ s ^. SessionUserId ==. val uid
+		insert $ Session ssn uid now
+	setCookie def {
+		setCookieName = "session",
+		setCookieValue = encodeUtf8 ssn,
+		setCookiePath = Just "/",
+		setCookieExpires = Nothing,
+		setCookieMaxAge = Just 1800,
+		setCookieDomain = Nothing,
+		setCookieHttpOnly = True,
+#ifdef DEVELOPMENT
+		setCookieSecure = False,
+#else
+		setCookieSecure = True,
+#endif
+		setCookieSameSite = Just sameSiteStrict
+		}
 
 updateAutoLogin :: Text -> Handler ()
 updateAutoLogin uid = do

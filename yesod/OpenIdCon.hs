@@ -7,7 +7,8 @@ module OpenIdCon (
 	makeSession, makeAutoLogin, updateAutoLogin ) where
 
 import Import hiding (
-	UserId, (==.), delete, Header, check, authenticate, lookup, (=.), update)
+	UserId, (==.), delete, Header, check, authenticate, lookup, (=.), update,
+	makeSession)
 
 import Control.Arrow (left)
 
