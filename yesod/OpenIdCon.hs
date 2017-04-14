@@ -273,7 +273,7 @@ makeSession = do
 		setCookieValue = ssn,
 		setCookiePath = Just "/",
 		setCookieExpires = Nothing,
-		setCookieMaxAge = Just 10,
+		setCookieMaxAge = Just 1800,
 		setCookieDomain = Nothing,
 		setCookieHttpOnly = True,
 #ifdef DEVELOPMENT
