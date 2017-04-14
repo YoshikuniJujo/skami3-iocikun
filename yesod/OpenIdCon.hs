@@ -269,7 +269,10 @@ makeSession :: UserId -> Handler ()
 makeSession (UserId uid) = do
 	ssn <- lift (getNonce 256)
 	now <- liftIO getCurrentTime
-	_ <- runDB . insert $ Session ssn uid now
+	_ <- runDB $ do
+		delete . from $ \s ->
+			where_ $ s ^. SessionUserId ==. val uid
+		insert $ Session ssn uid now
 	setCookie def {
 		setCookieName = "session",
 		setCookieValue = encodeUtf8 ssn,
@@ -290,7 +293,10 @@ makeAutoLogin :: UserId -> Handler ()
 makeAutoLogin (UserId uid) = do
 	al <- lift (getNonce 512)
 	now <- liftIO getCurrentTime
-	_ <- runDB . insert $ AutoLogin al uid now
+	_ <- runDB $ do
+		delete . from $ \s ->
+			where_ $ s ^. AutoLoginUserId ==. val uid
+		insert $ AutoLogin al uid now
 	setCookie def {
 		setCookieName = "auto-login",
 		setCookieValue = encodeUtf8 al,
