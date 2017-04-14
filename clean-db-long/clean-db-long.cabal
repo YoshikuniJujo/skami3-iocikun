@@ -1,0 +1,55 @@
+name:                clean-db-long
+version:             0.1.0.0
+-- synopsis:
+-- description:
+homepage:            https://github.com/githubuser/clean-db-long#readme
+license:             BSD3
+license-file:        LICENSE
+author:              Author name here
+maintainer:          example@example.com
+copyright:           2017 Author name here
+category:            Web
+build-type:          Simple
+extra-source-files:  README.md
+cabal-version:       >=1.10
+
+library
+  hs-source-dirs:      src
+  exposed-modules:     Template
+  ghc-options:         -Wall -fno-warn-tabs
+  build-depends:
+    base >= 4.7 && < 5, template-haskell, bytestring, postgresql-simple,
+    persistent, persistent-template, persistent-postgresql, resourcet,
+    transformers, monad-logger
+  default-language:    Haskell2010
+  default-extensions:
+    GADTs,
+    TypeApplications,
+    ScopedTypeVariables,
+    AllowAmbiguousTypes,
+    OverloadedStrings
+
+executable clean-db-long
+  hs-source-dirs:      app
+  main-is:             clean-db-long.hs
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Wall -fno-warn-tabs
+  build-depends:
+    base, persistent-template, text, time, clean-db-long, esqueleto
+  default-language:    Haskell2010
+  default-extensions:
+    TemplateHaskell, QuasiQuotes, TypeFamilies, MultiParamTypeClasses,
+    GADTs, GeneralizedNewtypeDeriving, TypeApplications
+
+
+test-suite clean-db-long-test
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test
+  main-is:             Spec.hs
+  build-depends:       base
+                     , clean-db-long
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  default-language:    Haskell2010
+
+source-repository head
+  type:     git
+  location: https://github.com/githubuser/clean-db-long
