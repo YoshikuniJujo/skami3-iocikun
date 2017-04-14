@@ -16,6 +16,12 @@ OpenIdStateNonce
 	nonce	Txt.Text
 	date	UTCTime
 	deriving Show
+
+Session
+	session	Txt.Text
+	userId	Txt.Text
+	date	UTCTime
+	deriving Show
 |]
 
 main :: IO ()
@@ -25,3 +31,6 @@ main = do
 		delete . from $ \sn -> where_ $
 			sn ^. OpenIdStateNonceDate <. val (addUTCTime (- 300) t)
 		selectAll @OpenIdStateNonce >>= liftIO . print
+		delete . from $ \ssn -> where_ $
+			ssn ^. SessionDate <. val (addUTCTime (- 1800) t)
+		selectAll @Session >>= liftIO . print
