@@ -142,8 +142,8 @@ instance Yesod App where
 			where_ $ s ^. SessionSession ==. (val ssn)
 			return $ s ^. SessionUserId
 
-	userId <- case uid1 of
-		[Value u] -> return u
+	mUserId <- case uid1 of
+		[Value u] -> return $ Just u
 		_ -> do	uid2 <- flip (maybe $ return []) autoLogin $ \al ->
 				runDB $ select . from $ \a -> do
 					where_ $ a ^. AutoLoginAutoLogin ==.
@@ -153,8 +153,11 @@ instance Yesod App where
 				[Value u'] -> do
 					makeSession u'
 					updateAutoLogin u'
-					return u'
-				_ -> return ("" :: Text)
+					return $ Just u'
+				_ -> return Nothing
+	let	(userId, loginOut, loginOutLn) = case mUserId of
+			Just u -> (u, "logout" :: Text, "/ylogout" :: Text)
+			Nothing -> ("", "login", "/ylogin")
 
         pc <- widgetToPageContent $ do
             addStylesheet $ StaticR css_bootstrap_css

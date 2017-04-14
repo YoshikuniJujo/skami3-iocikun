@@ -6,4 +6,4 @@
 
 <h1 #start>Logout
 
-<p>logout
+<p><a href="/">home
