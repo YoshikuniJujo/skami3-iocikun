@@ -11,13 +11,14 @@ import Import (
 	setTitle, defaultLayout, widgetFile )
 import OpenIdCon (
 	UserId, AccessToken, authenticate, getProfile, showProfile, lookup,
-	makeSession )
+	makeSession, makeAutoLogin )
 
 getLoginedR :: Handler Html
 getLoginedR = do
 	ua <- authenticate
 	either (const $ return ()) (debugProfile . snd) ua
 	makeSession
+	makeAutoLogin
 	either showErrorPage (uncurry showPage) ua
 
 debugProfile :: AccessToken -> Handler ()

@@ -128,6 +128,7 @@ instance Yesod App where
         -- you to use normal widget features in default-layout.
 
 	session <- show . (Txt.take 15 <$>) <$> lookupCookie "session"
+	autoLogin <- show . (Txt.take 15 <$>) <$> lookupCookie "auto-login"
 
         pc <- widgetToPageContent $ do
             addStylesheet $ StaticR css_bootstrap_css

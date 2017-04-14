@@ -4,7 +4,7 @@ module OpenIdCon (
 	UserId, AccessToken,
 	yconnect, authenticate,
 	getProfile, showProfile, lookup,
-	makeSession ) where
+	makeSession, makeAutoLogin ) where
 
 import Import hiding (
 	UserId, (==.), delete, Header, check, authenticate, lookup)
@@ -274,6 +274,25 @@ makeSession = do
 		setCookiePath = Just "/",
 		setCookieExpires = Nothing,
 		setCookieMaxAge = Just 10,
+		setCookieDomain = Nothing,
+		setCookieHttpOnly = True,
+#ifdef DEVELOPMENT
+		setCookieSecure = False,
+#else
+		setCookieSecure = True,
+#endif
+		setCookieSameSite = Just sameSiteStrict
+		}
+
+makeAutoLogin :: (MonadHandler (t m), MonadRandom m, MonadTrans t) => t m ()
+makeAutoLogin = do
+	al <- encodeUtf8 <$> lift (getNonce 512)
+	setCookie def {
+		setCookieName = "auto-login",
+		setCookieValue = al,
+		setCookiePath = Just "/",
+		setCookieExpires = Nothing,
+		setCookieMaxAge = Just 2592000,
 		setCookieDomain = Nothing,
 		setCookieHttpOnly = True,
 #ifdef DEVELOPMENT
