@@ -26,6 +26,7 @@ library
                      Handler.Profile
                      Handler.YLogin
                      Handler.Logined
+                     Handler.YLogout
                      OpenIdCon
                      Environment
 

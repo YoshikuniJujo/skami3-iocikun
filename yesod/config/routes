@@ -13,3 +13,5 @@
 /profile ProfileR GET
 
 /logined LoginedR GET
+
+/ylogout YLogoutR GET
