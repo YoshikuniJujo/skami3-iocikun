@@ -71,3 +71,18 @@
 #message {
     margin-bottom: 40px;
 }
+
+div.header_bar {
+#	background_color: #7f7f7f; color: #ffffff;
+	background_color: #ffffff; color: #000000;
+	min-height: 40px;
+}
+
+div.user_name {
+	text-align: left;
+	float: left;
+}
+
+div.login_logout {
+	text-align: right;
+}
