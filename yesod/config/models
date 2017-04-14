@@ -34,4 +34,13 @@ AutoLogin
     date UTCTime
     deriving Show
 
+Profile
+    userId Text
+    name Text
+    family_name Text
+    given_name Text
+    gender Text
+    birthday Int
+    email Text
+
  -- By default this file is used in Model.hs (which is imported by Foundation.hs)

@@ -1,5 +1,5 @@
 <div class="header_bar">
-    <div class="user_name">#{userId}
+    <div class="user_name">#{userName}
     <div class="login_logout">
       <a href="#{loginOutLn}">#{loginOut}
 

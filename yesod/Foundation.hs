@@ -155,9 +155,17 @@ instance Yesod App where
 					updateAutoLogin u'
 					return $ Just u'
 				_ -> return Nothing
+	names <- flip (maybe $ return []) mUserId $ \u ->
+		runDB . select . from $ \p -> do
+			where_ $ p ^. ProfileUserId ==. val u
+			return $ p ^. ProfileName
+	print names
 	let	(userId, loginOut, loginOutLn) = case mUserId of
 			Just u -> (u, "logout" :: Text, "/ylogout" :: Text)
 			Nothing -> ("", "login", "/ylogin")
+		userName = case names of
+			[Value n] -> n
+			_ -> "ゲスト"
 
         pc <- widgetToPageContent $ do
             addStylesheet $ StaticR css_bootstrap_css
