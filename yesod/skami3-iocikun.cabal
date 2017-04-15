@@ -29,7 +29,6 @@ library
                      Handler.YLogout
                      OpenIdCon
                      Environment
-                     MyDefault
 
     if flag(dev) || flag(library-only)
         cpp-options:   -DDEVELOPMENT

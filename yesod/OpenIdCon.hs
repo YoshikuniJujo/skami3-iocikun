@@ -16,7 +16,6 @@ import Data.ByteArray
 import Data.Time.Clock.POSIX
 import Data.Scientific
 import Network.HTTP.Simple
-import Crypto.Random
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Crypto.Hash.Algorithms (SHA256)
 import Database.Esqueleto hiding (on) -- (Value(..), (^.), val)

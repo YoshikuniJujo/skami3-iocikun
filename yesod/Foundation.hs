@@ -22,8 +22,6 @@ import Web.Cookie (SetCookie(..), sameSiteStrict)
 import qualified Data.ByteString.Base64.URL as B64
 import Crypto.Random
 
-import MyDefault
-
 -- | The foundation datatype for your application. This can be a good place to
 -- keep settings and values requiring initialization before your application
 -- starts running, such as database connections. Every handler will have
@@ -88,45 +86,7 @@ instance Yesod App where
     -- For details, see the CSRF documentation in the Yesod.Core.Handler module of the yesod-core package.-
     yesodMiddleware = defaultYesodMiddleware
 
-    defaultLayout widget = do
-        master <- getYesod
-	session <- lookupCookie "session"
-	autoLogin <- lookupCookie "auto-login"
-
-	uid1 <- flip (maybe $ return []) session $ \ssn ->
-		runDB $ select . from $ \s -> do
-			where_ $ s ^. SessionSession ==. (val ssn)
-			return $ s ^. SessionUserId
-
-	mUserId <- case uid1 of
-		[Value u] -> return $ Just u
-		_ -> do	uid2 <- flip (maybe $ return []) autoLogin $ \al ->
-				runDB $ select . from $ \a -> do
-					where_ $ a ^. AutoLoginAutoLogin ==.
-						(val al)
-					return $ a ^. AutoLoginUserId
-			case uid2 of
-				[Value u'] -> do
-					makeSession u'
-					updateAutoLogin u'
-					return $ Just u'
-				_ -> return Nothing
-	names <- flip (maybe $ return []) mUserId $ \u ->
-		runDB . select . from $ \p -> do
-			where_ $ p ^. ProfileUserId ==. val u
-			return $ p ^. ProfileName
-	print names
-	let	(loginOut, loginOutLn) = case mUserId of
-			Just _ -> ("logout" :: Text, "/ylogout" :: Text)
-			Nothing -> ("login", "/ylogin")
-		userName = case names of
-			[Value n] -> n
-			_ -> "ゲスト"
-
-        pc <- widgetToPageContent $ do
-            addStylesheet $ StaticR css_bootstrap_css
-            $(widgetFile "default-layout")
-        withUrlRenderer $(hamletFile "templates/default-layout-wrapper.hamlet")
+    defaultLayout = myDefaultLayout
 
     -- The page to be redirected to when authentication is required.
     authRoute _ = Just $ AuthR LoginR
@@ -300,3 +260,44 @@ updateAutoLogin uid = do
 getNonce :: MonadRandom m => Int -> m Text
 getNonce = (Txt.dropWhileEnd (== '=') . decodeUtf8 . B64.encode <$>)
 	. getRandomBytes
+
+myDefaultLayout :: ToWidget App a => a -> Handler Html
+myDefaultLayout widget = do
+	master <- getYesod
+	session <- lookupCookie "session"
+	autoLogin <- lookupCookie "auto-login"
+
+	uid1 <- flip (maybe $ return []) session $ \ssn ->
+		runDB $ select . from $ \s -> do
+			where_ $ s ^. SessionSession ==. (val ssn)
+			return $ s ^. SessionUserId
+
+	mUserId <- case uid1 of
+		[Value u] -> return $ Just u
+		_ -> do	uid2 <- flip (maybe $ return []) autoLogin $ \al ->
+				runDB $ select . from $ \a -> do
+					where_ $ a ^. AutoLoginAutoLogin ==.
+						(val al)
+					return $ a ^. AutoLoginUserId
+			case uid2 of
+				[Value u'] -> do
+					makeSession u'
+					updateAutoLogin u'
+					return $ Just u'
+				_ -> return Nothing
+	names <- flip (maybe $ return []) mUserId $ \u ->
+		runDB . select . from $ \p -> do
+			where_ $ p ^. ProfileUserId ==. val u
+			return $ p ^. ProfileName
+	print names
+	let	(loginOut, loginOutLn) = case mUserId of
+			Just _ -> ("logout" :: Text, "/ylogout" :: Text)
+			Nothing -> ("login", "/ylogin")
+		userName = case names of
+			[Value n] -> n
+			_ -> "ゲスト"
+
+	pc <- widgetToPageContent $ do
+		addStylesheet $ StaticR css_bootstrap_css
+		$(widgetFile "default-layout")
+	withUrlRenderer $(hamletFile "templates/default-layout-wrapper.hamlet")
