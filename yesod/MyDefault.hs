@@ -1,14 +1,15 @@
-module MyDefault (myDefaultLayout) where
+module MyDefault (
+	App(..), Handler, Route(..), Widget, myDefaultLayout, resourcesApp
+	) where
+
+--
 
 import Import.NoFoundation hiding ((.), print, (==.), (=.), update, delete)
 
 import Prelude
-import Yesod hiding ((==.), (=.), update, delete)
 import Yesod.Core.Types (Logger)
 import Data.Text (Text)
 import Database.Esqueleto
-import Settings
-import Model
 import Web.Cookie
 
 import Crypto.Random
@@ -22,15 +23,8 @@ import qualified Data.CaseInsensitive as CI
 import qualified Data.Text.Encoding as TE
 import qualified Data.ByteString.Base64.URL as B64
 
-import Data.Time
-
-import qualified ClassyPrelude.Yesod   as I
-import qualified Model                 as I
-import qualified Settings              as I
 import Settings.StaticFiles (css_bootstrap_css)
-import Yesod.Auth (Auth(..), getAuth)
-import qualified Yesod.Core.Types      as I(loggerSet)
-import qualified Yesod.Default.Config2 as I
+import Yesod.Auth (Auth, getAuth)
 
 mkYesodData "App" $(parseRoutesFile "config/routes")
 
@@ -42,7 +36,7 @@ data App = App
     , appLogger      :: Logger
     }
 
-myDefaultLayout :: ToWidget App a => a -> Handler Html
+myDefaultLayout :: (Yesod App, ToWidget App a) => a -> Handler Html
 myDefaultLayout widget = do
 	master <- getYesod
 	session <- lookupCookie "session"

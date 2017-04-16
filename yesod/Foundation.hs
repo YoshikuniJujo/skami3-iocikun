@@ -1,8 +1,6 @@
-module Foundation where
+module Foundation (module Foundation) where
 
 import Import.NoFoundation hiding ((==.), (=.), update, delete)
-import Database.Persist.Sql (ConnectionPool, runSqlPool)
-import Text.Hamlet          (hamletFile)
 import Text.Jasmine         (minifym)
 
 -- Used only when in "auth-dummy-login" setting is enabled.
@@ -10,10 +8,7 @@ import Yesod.Auth.Dummy
 
 import Yesod.Auth.OpenId    (authOpenId, IdentifierType (Claimed))
 import Yesod.Default.Util   (addStaticContentExternal)
-import Yesod.Core.Types     (Logger)
 import qualified Yesod.Core.Unsafe as Unsafe
-import qualified Data.CaseInsensitive as CI
-import qualified Data.Text.Encoding as TE
 
 import qualified Data.Text as Txt
 
@@ -22,17 +17,12 @@ import Web.Cookie (SetCookie(..), sameSiteStrict)
 import qualified Data.ByteString.Base64.URL as B64
 import Crypto.Random
 
+import MyDefault as Foundation
+--
 -- | The foundation datatype for your application. This can be a good place to
 -- keep settings and values requiring initialization before your application
 -- starts running, such as database connections. Every handler will have
 -- access to the data present here.
-data App = App
-    { appSettings    :: AppSettings
-    , appStatic      :: Static -- ^ Settings for static file serving.
-    , appConnPool    :: ConnectionPool -- ^ Database connection pool.
-    , appHttpManager :: Manager
-    , appLogger      :: Logger
-    }
 
 data MenuItem = MenuItem
     { menuItemLabel :: Text
@@ -56,7 +46,7 @@ data MenuTypes
 -- This function also generates the following type synonyms:
 -- type Handler = HandlerT App IO
 -- type Widget = WidgetT App IO ()
-mkYesodData "App" $(parseRoutesFile "config/routes")
+-- mkYesodData "App" $(parseRoutesFile "config/routes")
 
 -- | A convenient synonym for creating forms.
 type Form x = Html -> MForm (HandlerT App IO) (FormResult x, Widget)
@@ -144,11 +134,6 @@ instance YesodBreadcrumbs App where
   breadcrumb  _ = return ("home", Nothing)
 
 -- How to run database actions.
-instance YesodPersist App where
-    type YesodPersistBackend App = SqlBackend
-    runDB action = do
-        master <- getYesod
-        runSqlPool action $ appConnPool master
 instance YesodPersistRunner App where
     getDBRunner = defaultGetDBRunner appConnPool
 
@@ -260,44 +245,3 @@ updateAutoLogin uid = do
 getNonce :: MonadRandom m => Int -> m Text
 getNonce = (Txt.dropWhileEnd (== '=') . decodeUtf8 . B64.encode <$>)
 	. getRandomBytes
-
-myDefaultLayout :: ToWidget App a => a -> Handler Html
-myDefaultLayout widget = do
-	master <- getYesod
-	session <- lookupCookie "session"
-	autoLogin <- lookupCookie "auto-login"
-
-	uid1 <- flip (maybe $ return []) session $ \ssn ->
-		runDB $ select . from $ \s -> do
-			where_ $ s ^. SessionSession ==. (val ssn)
-			return $ s ^. SessionUserId
-
-	mUserId <- case uid1 of
-		[Value u] -> return $ Just u
-		_ -> do	uid2 <- flip (maybe $ return []) autoLogin $ \al ->
-				runDB $ select . from $ \a -> do
-					where_ $ a ^. AutoLoginAutoLogin ==.
-						(val al)
-					return $ a ^. AutoLoginUserId
-			case uid2 of
-				[Value u'] -> do
-					makeSession u'
-					updateAutoLogin u'
-					return $ Just u'
-				_ -> return Nothing
-	names <- flip (maybe $ return []) mUserId $ \u ->
-		runDB . select . from $ \p -> do
-			where_ $ p ^. ProfileUserId ==. val u
-			return $ p ^. ProfileName
-	print names
-	let	(loginOut, loginOutLn) = case mUserId of
-			Just _ -> ("logout" :: Text, "/ylogout" :: Text)
-			Nothing -> ("login", "/ylogin")
-		userName = case names of
-			[Value n] -> n
-			_ -> "ゲスト"
-
-	pc <- widgetToPageContent $ do
-		addStylesheet $ StaticR css_bootstrap_css
-		$(widgetFile "default-layout")
-	withUrlRenderer $(hamletFile "templates/default-layout-wrapper.hamlet")
