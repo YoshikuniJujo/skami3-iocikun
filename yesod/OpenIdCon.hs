@@ -1,14 +1,13 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module OpenIdCon (
-	UserId, AccessToken,
+	UserId(..), AccessToken,
 	yconnect, authenticate,
 	getProfile, showProfile, lookup,
-	makeSession, makeAutoLogin ) where
+	makeSession, makeAutoLogin, updateAutoLogin ) where
 
 import Import.NoFoundation hiding (
-	UserId, (==.), delete, Header, check, authenticate, lookup, (=.), update,
-	makeSession)
+	UserId, (==.), delete, Header, check, authenticate, lookup, (=.), update )
 
 import Environment
 
@@ -33,6 +32,8 @@ import qualified Data.Aeson as Aeson
 import qualified Data.HashMap.Lazy as HML
 
 import Web.Cookie (SetCookie(..), sameSiteStrict)
+
+import qualified Data.Text.Encoding as TE
 
 getNonce :: MonadRandom m => Int -> m Text
 getNonce = (Txt.dropWhileEnd (== '=') . decodeUtf8 . B64.encode <$>)
@@ -106,6 +107,12 @@ newtype AccessToken = AccessToken Text deriving Show
 
 -- authenticate, logined :: Handler (Either String (UserId, AccessToken))
 -- authenticate, logined :: HandlerT App IO (Either String (UserId, AccessToken))
+authenticate, logined :: (BaseBackend (YesodPersistBackend site) ~ SqlBackend,
+		PersistUniqueWrite (YesodPersistBackend site),
+		PersistQueryWrite (YesodPersistBackend site),
+		YesodPersist site,
+		IsPersistBackend (YesodPersistBackend site)) =>
+	HandlerT site IO (Either String (UserId, AccessToken))
 authenticate = logined
 
 logined = do
@@ -114,6 +121,12 @@ logined = do
 
 -- logined_ ::
 --	Code -> State -> HandlerT App IO (Either String (UserId, AccessToken))
+logined_ :: (BaseBackend (YesodPersistBackend site) ~ SqlBackend,
+		PersistUniqueWrite (YesodPersistBackend site),
+		PersistQueryWrite (YesodPersistBackend site),
+		YesodPersist site,
+		IsPersistBackend (YesodPersistBackend site)) =>
+	Code -> State -> HandlerT site IO (Either String (UserId, AccessToken))
 logined_ code (State state) = do
 	nonce <- runDB $ do
 		n <- select . from $ \sn -> do
@@ -321,6 +334,34 @@ makeAutoLogin (UserId uid) = do
 	setCookie def {
 		setCookieName = "auto-login",
 		setCookieValue = encodeUtf8 al,
+		setCookiePath = Just "/",
+		setCookieExpires = Nothing,
+		setCookieMaxAge = Just 2592000,
+		setCookieDomain = Nothing,
+		setCookieHttpOnly = True,
+#ifdef DEVELOPMENT
+		setCookieSecure = False,
+#else
+		setCookieSecure = True,
+#endif
+		setCookieSameSite = Just sameSiteStrict
+		}
+
+updateAutoLogin :: (BaseBackend (YesodPersistBackend site) ~ SqlBackend,
+		PersistUniqueWrite (YesodPersistBackend site),
+		PersistQueryWrite (YesodPersistBackend site),
+		YesodPersist site,
+		IsPersistBackend (YesodPersistBackend site)) =>
+	UserId -> HandlerT site IO ()
+updateAutoLogin (UserId uid) = do
+	al <- lift (getNonce 512)
+	_ <- runDB $ do
+		update $ \a -> do
+			set a [ AutoLoginAutoLogin =. val al ]
+			where_ (a ^. AutoLoginUserId ==. val uid)
+	setCookie def {
+		setCookieName = "auto-login",
+		setCookieValue = TE.encodeUtf8 al,
 		setCookiePath = Just "/",
 		setCookieExpires = Nothing,
 		setCookieMaxAge = Just 2592000,

@@ -12,12 +12,7 @@ import Yesod.Auth.OpenId    (authOpenId, IdentifierType (Claimed))
 import Yesod.Default.Util   (addStaticContentExternal)
 import qualified Yesod.Core.Unsafe as Unsafe
 
-import qualified Data.Text as Txt
-
 import Database.Esqueleto hiding (isNothing)
-import Web.Cookie (SetCookie(..), sameSiteStrict)
-import qualified Data.ByteString.Base64.URL as B64
-import Crypto.Random
 
 import CheckLogined
 
@@ -100,7 +95,7 @@ instance Yesod App where
 
     defaultLayout widget = do
 	master <- getYesod
-	(userName, loginOut, loginOutLn) <- checkLogined (appConnPool master)
+	(userName, loginOut, loginOutLn) <- checkLogined
 	pc <- widgetToPageContent $ do
 		addStylesheet $ StaticR css_bootstrap_css
 		$(widgetFile "default-layout")
@@ -222,54 +217,3 @@ unsafeHandler = Unsafe.fakeHandlerGetLogger appLogger
 -- https://github.com/yesodweb/yesod/wiki/Sending-email
 -- https://github.com/yesodweb/yesod/wiki/Serve-static-files-from-a-separate-domain
 -- https://github.com/yesodweb/yesod/wiki/i18n-messages-in-the-scaffolding
-
-makeSession :: Text -> Handler ()
-makeSession uid = do
-	ssn <- lift (getNonce 256)
-	now <- liftIO getCurrentTime
-	_ <- runDB $ do
-		delete . from $ \s ->
-			where_ $ s ^. SessionUserId ==. val uid
-		insert $ Session ssn uid now
-	setCookie def {
-		setCookieName = "session",
-		setCookieValue = encodeUtf8 ssn,
-		setCookiePath = Just "/",
-		setCookieExpires = Nothing,
-		setCookieMaxAge = Just 1800,
-		setCookieDomain = Nothing,
-		setCookieHttpOnly = True,
-#ifdef DEVELOPMENT
-		setCookieSecure = False,
-#else
-		setCookieSecure = True,
-#endif
-		setCookieSameSite = Just sameSiteStrict
-		}
-
-updateAutoLogin :: Text -> Handler ()
-updateAutoLogin uid = do
-	al <- lift (getNonce 512)
-	_ <- runDB $ do
-		update $ \a -> do
-			set a [ AutoLoginAutoLogin =. val al ]
-			where_ (a ^. AutoLoginUserId ==. val uid)
-	setCookie def {
-		setCookieName = "auto-login",
-		setCookieValue = encodeUtf8 al,
-		setCookiePath = Just "/",
-		setCookieExpires = Nothing,
-		setCookieMaxAge = Just 2592000,
-		setCookieDomain = Nothing,
-		setCookieHttpOnly = True,
-#ifdef DEVELOPMENT
-		setCookieSecure = False,
-#else
-		setCookieSecure = True,
-#endif
-		setCookieSameSite = Just sameSiteStrict
-		}
-
-getNonce :: MonadRandom m => Int -> m Text
-getNonce = (Txt.dropWhileEnd (== '=') . decodeUtf8 . B64.encode <$>)
-	. getRandomBytes
