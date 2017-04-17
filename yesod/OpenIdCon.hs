@@ -4,11 +4,15 @@ module OpenIdCon (
 	UserId, AccessToken,
 	yconnect, authenticate,
 	getProfile, showProfile, lookup,
-	makeSession, makeAutoLogin, updateAutoLogin ) where
+	makeSession, makeAutoLogin ) where
 
-import Import hiding (
+import Import.NoFoundation hiding (
 	UserId, (==.), delete, Header, check, authenticate, lookup, (=.), update,
 	makeSession)
+
+import Environment
+
+import Crypto.Random
 
 import Control.Arrow (left)
 
@@ -30,13 +34,15 @@ import qualified Data.HashMap.Lazy as HML
 
 import Web.Cookie (SetCookie(..), sameSiteStrict)
 
-{-
 getNonce :: MonadRandom m => Int -> m Text
 getNonce = (Txt.dropWhileEnd (== '=') . decodeUtf8 . B64.encode <$>)
 	. getRandomBytes
-	-}
 
-yconnect :: ClientId -> RedirectUri -> Handler Html
+yconnect :: (BaseBackend (YesodPersistBackend site) ~ SqlBackend,
+		PersistQueryRead (YesodPersistBackend site),
+		PersistStoreWrite (YesodPersistBackend site),
+		YesodPersist site) =>
+	ClientId -> RedirectUri -> HandlerT site IO b
 yconnect (ClientId cid) (RedirectUri ruri) = do
 	(state, nonce, date) <- lift
 		$ (,,) <$> getNonce 256 <*> getNonce 256 <*> getCurrentTime
@@ -98,14 +104,16 @@ newtype TokenType = TokenType Text deriving (Show, Eq)
 newtype UserId = UserId Text deriving Show
 newtype AccessToken = AccessToken Text deriving Show
 
-authenticate, logined :: Handler (Either String (UserId, AccessToken))
+-- authenticate, logined :: Handler (Either String (UserId, AccessToken))
+-- authenticate, logined :: HandlerT App IO (Either String (UserId, AccessToken))
 authenticate = logined
 
 logined = do
 	cs <- (\c s -> (,) <$> c <*> s) <$> lookupGetCode <*> lookupGetState
 	maybe (return $ Left "no code or state") (uncurry logined_) cs
 
-logined_ :: Code -> State -> Handler (Either String (UserId, AccessToken))
+-- logined_ ::
+--	Code -> State -> HandlerT App IO (Either String (UserId, AccessToken))
 logined_ code (State state) = do
 	nonce <- runDB $ do
 		n <- select . from $ \sn -> do
@@ -118,7 +126,8 @@ logined_ code (State state) = do
 		[Value n] -> loginedGen code (Nonce0 n)
 		_ -> return $ Left "No or Multiple state"
 
-loginedGen :: Code -> Nonce0 -> Handler (Either String (UserId, AccessToken))
+loginedGen :: (MonadIO (t IO), MonadThrow (t IO), MonadTrans t) =>
+	Code -> Nonce0 -> t IO (Either String (UserId, AccessToken))
 loginedGen code n0 = do
 	(clientId, clientSecret, redirectUri) <- lift $ (,,) 
 		<$> getClientId <*> getClientSecret <*> getRedirectUri
@@ -267,7 +276,12 @@ getProfile (AccessToken at) = do
 lookup :: (Hashable k, Eq k) => k -> HashMap k Aeson.Value -> Maybe Text
 lookup k = (unstring =<<) . HML.lookup k
 
-makeSession :: UserId -> Handler ()
+makeSession :: (BaseBackend (YesodPersistBackend site) ~ SqlBackend,
+		PersistUniqueWrite (YesodPersistBackend site),
+		PersistQueryWrite (YesodPersistBackend site),
+		IsPersistBackend (YesodPersistBackend site),
+		YesodPersist site) =>
+	UserId -> HandlerT site IO ()
 makeSession (UserId uid) = do
 	ssn <- lift (getNonce 256)
 	now <- liftIO getCurrentTime
@@ -291,7 +305,12 @@ makeSession (UserId uid) = do
 		setCookieSameSite = Just sameSiteStrict
 		}
 
-makeAutoLogin :: UserId -> Handler ()
+makeAutoLogin :: (BaseBackend (YesodPersistBackend site) ~ SqlBackend,
+		PersistUniqueWrite (YesodPersistBackend site),
+		PersistQueryWrite (YesodPersistBackend site),
+		IsPersistBackend (YesodPersistBackend site),
+		YesodPersist site) =>
+	UserId -> HandlerT site IO ()
 makeAutoLogin (UserId uid) = do
 	al <- lift (getNonce 512)
 	now <- liftIO getCurrentTime
