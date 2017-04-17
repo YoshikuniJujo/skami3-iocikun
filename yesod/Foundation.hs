@@ -3,6 +3,8 @@ module Foundation (module Foundation) where
 import Import.NoFoundation hiding ((==.), (=.), update, delete)
 import Text.Jasmine         (minifym)
 
+import Yesod.Core.Types (Logger)
+
 -- Used only when in "auth-dummy-login" setting is enabled.
 import Yesod.Auth.Dummy
 
@@ -17,12 +19,25 @@ import Web.Cookie (SetCookie(..), sameSiteStrict)
 import qualified Data.ByteString.Base64.URL as B64
 import Crypto.Random
 
-import MyDefault as Foundation
+import CheckLogined
+
+import Text.Hamlet
+import qualified Data.CaseInsensitive as CI
+import qualified Data.Text.Encoding as TE
+
 --
 -- | The foundation datatype for your application. This can be a good place to
 -- keep settings and values requiring initialization before your application
 -- starts running, such as database connections. Every handler will have
 -- access to the data present here.
+
+data App = App
+    { appSettings    :: AppSettings
+    , appStatic      :: Static -- ^ Settings for static file serving.
+    , appConnPool    :: ConnectionPool -- ^ Database connection pool.
+    , appHttpManager :: Manager
+    , appLogger      :: Logger
+    }
 
 data MenuItem = MenuItem
     { menuItemLabel :: Text
@@ -47,6 +62,13 @@ data MenuTypes
 -- type Handler = HandlerT App IO
 -- type Widget = WidgetT App IO ()
 -- mkYesodData "App" $(parseRoutesFile "config/routes")
+mkYesodData "App" $(parseRoutesFile "config/routes")
+
+instance YesodPersist App where
+    type YesodPersistBackend App = SqlBackend
+    runDB action = do
+        master <- getYesod
+        runSqlPool action $ appConnPool master
 
 -- | A convenient synonym for creating forms.
 type Form x = Html -> MForm (HandlerT App IO) (FormResult x, Widget)
@@ -76,7 +98,13 @@ instance Yesod App where
     -- For details, see the CSRF documentation in the Yesod.Core.Handler module of the yesod-core package.-
     yesodMiddleware = defaultYesodMiddleware
 
-    defaultLayout = myDefaultLayout
+    defaultLayout widget = do
+	master <- getYesod
+	(userName, loginOut, loginOutLn) <- checkLogined (appConnPool master)
+	pc <- widgetToPageContent $ do
+		addStylesheet $ StaticR css_bootstrap_css
+		$(widgetFile "default-layout")
+	withUrlRenderer $(hamletFile "templates/default-layout-wrapper.hamlet")
 
     -- The page to be redirected to when authentication is required.
     authRoute _ = Just $ AuthR LoginR

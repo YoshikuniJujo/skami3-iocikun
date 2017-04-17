@@ -29,7 +29,7 @@ library
                      Handler.YLogout
                      OpenIdCon
                      Environment
-                     MyDefault
+                     CheckLogined
 
     if flag(dev) || flag(library-only)
         cpp-options:   -DDEVELOPMENT
@@ -106,6 +106,7 @@ library
                  , filepath
                  , scientific
                  , cookie
+                 , resource-pool
 
 executable         skami3-iocikun
     if flag(library-only)
