@@ -3,9 +3,10 @@
 module OpenIdConn (
 	UserId(..), AccessToken,
 	yconnect, authenticate,
-	getProfile, showProfile, lookup,
+	getProfile, setProfile, showProfile,
 	makeSession, makeAutoLogin, updateAutoLogin ) where
 
+import Prelude (read)
 import Import.NoFoundation hiding (
 	UserId, (==.), delete, Header, check, authenticate, lookup, (=.), update )
 
@@ -286,8 +287,8 @@ getProfile (AccessToken at) = do
 	rBody <- getResponseBody <$> httpLBS req
 	return (Aeson.decode rBody :: Maybe Aeson.Object)
 
-lookup :: (Hashable k, Eq k) => k -> HashMap k Aeson.Value -> Maybe Text
-lookup k = (unstring =<<) . HML.lookup k
+lookupString :: (Hashable k, Eq k) => k -> HashMap k Aeson.Value -> Maybe Text
+lookupString k = (unstring =<<) . HML.lookup k
 
 makeSession :: (BaseBackend (YesodPersistBackend site) ~ SqlBackend,
 		PersistUniqueWrite (YesodPersistBackend site),
@@ -374,3 +375,21 @@ updateAutoLogin (UserId uid) = do
 #endif
 		setCookieSameSite = Just sameSiteStrict
 		}
+
+setProfile :: (BaseBackend (YesodPersistBackend site) ~ SqlBackend,
+		PersistUniqueWrite (YesodPersistBackend site),
+		PersistQueryWrite (YesodPersistBackend site),
+		YesodPersist site,
+		IsPersistBackend (YesodPersistBackend site)) =>
+	HashMap Text Aeson.Value -> HandlerT site IO ()
+setProfile prf = flip (maybe $ putStrLn eMsg) pu $ \(p, u) -> runDB $ do
+	delete . from $ where_ . (==. val u) . (^. ProfileUserId)
+	() <$ insert p
+	where
+	eMsg = "setProfile: error"
+	pu = (,) <$> mp <*> uid
+	mp = Profile <$> uid <*> n <*> fn <*> gn <*> gd <*> bd <*> em
+	[uid, n, fn, gn, gd, bd_, em] = flip lookupString prf <$> [
+		"user_id", "name", "family_name", "given_name",
+		"gender", "birthday", "email" ]
+	bd = read . Txt.unpack <$> bd_
