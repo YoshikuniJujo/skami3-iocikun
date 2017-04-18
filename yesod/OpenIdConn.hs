@@ -1,6 +1,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module OpenIdCon (
+module OpenIdConn (
 	UserId(..), AccessToken,
 	yconnect, authenticate,
 	getProfile, showProfile, lookup,

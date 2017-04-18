@@ -5,7 +5,7 @@ import Import.NoFoundation hiding ((.), print, (==.), (=.), update, delete, User
 import Prelude
 import Database.Esqueleto
 
-import OpenIdCon
+import OpenIdConn
 
 checkLogined :: (BaseBackend (YesodPersistBackend site) ~ SqlBackend,
 		PersistQueryWrite (YesodPersistBackend site),

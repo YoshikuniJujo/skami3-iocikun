@@ -12,7 +12,7 @@ import Import (
 	const, flip, fst, snd, maybe, either, print,
 	return, mapM_, putStrLn,
 	redirect, runDB )
-import OpenIdCon (
+import OpenIdConn (
 	AccessToken, authenticate, getProfile, showProfile, lookup,
 	makeSession, makeAutoLogin )
 

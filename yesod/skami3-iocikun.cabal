@@ -27,7 +27,7 @@ library
                      Handler.YLogin
                      Handler.Logined
                      Handler.YLogout
-                     OpenIdCon
+                     OpenIdConn
                      Environment
                      CheckLogined
 
