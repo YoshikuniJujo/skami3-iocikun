@@ -5,4 +5,5 @@ import OpenIdConn (yconnect)
 import Environment (getClientId, getRedirectUri)
 
 getYLoginR :: Handler Html
-getYLoginR = uncurry yconnect =<< lift ((,) <$> getClientId <*> getRedirectUri)
+getYLoginR =
+	uncurry yconnect =<< lift ((,) <$> getClientId <*> getRedirectUri)
