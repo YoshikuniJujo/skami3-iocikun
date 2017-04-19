@@ -95,7 +95,7 @@ instance Yesod App where
 
     defaultLayout widget = do
 	master <- getYesod
-	(userName, loginOut, loginOutLn) <- checkLogined
+	(userName, (loginOut, loginOutLn)) <- checkLogined
 	pc <- widgetToPageContent $ do
 		addStylesheet $ StaticR css_bootstrap_css
 		$(widgetFile "default-layout")
