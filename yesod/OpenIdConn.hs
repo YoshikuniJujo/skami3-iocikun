@@ -3,17 +3,13 @@
 module OpenIdConn (
 	MyHandler, UserId, AccessToken,
 	yconnect, authenticate,
-	getProfile, setProfile,
-	makeSession, makeAutoLogin, updateAutoLogin,
-	fromSession, fromAutoLogin, getName ) where
+	getProfile, setProfile ) where
 
 import Import.NoFoundation hiding (
 	UserId, (==.), delete, Header, check, authenticate, lookup, (=.), update )
 import Text.Read (readMaybe)
 
 import Environment
-
-import Crypto.Random
 
 import Control.Arrow (left)
 
@@ -32,14 +28,9 @@ import qualified Data.Text as Txt
 import qualified Data.Aeson as Aeson
 import qualified Data.HashMap.Lazy as HML
 
-import Web.Cookie (SetCookie(..), sameSiteStrict)
-
-type MyHandler a = forall site . (
-		BaseBackend (YesodPersistBackend site) ~ SqlBackend,
-		PersistQueryWrite (YesodPersistBackend site),
-		PersistUniqueWrite (YesodPersistBackend site),
-		IsPersistBackend (YesodPersistBackend site),
-		YesodPersist site ) => HandlerT site IO a
+import MyDatabase (
+	MyHandler, AccessToken(..), UserId(..), unstring,
+	getRand, rndToTxt )
 
 yconnect :: ClientId -> RedirectUri -> MyHandler a
 yconnect cid ruri = do
@@ -95,8 +86,8 @@ toAeson t = do
 
 newtype TokenType = TokenType Text deriving (Show, Eq)
 
-newtype UserId = UserId Text deriving Show
-newtype AccessToken = AccessToken Text deriving Show
+-- newtype UserId = UserId Text deriving Show
+-- newtype AccessToken = AccessToken Text deriving Show
 
 authenticate :: MyHandler (Either String (UserId, AccessToken))
 authenticate = do
@@ -237,139 +228,26 @@ checkGen (Iss iss) (Aud aud, cid) (Iat iat, Exp ex, Now now)
 	hmacSha256 s d = B64.encode . convert $ hmacGetDigest (hmac s d :: HMAC SHA256)
 
 getProfile ::
-	(MonadIO m, MonadThrow m) => AccessToken -> m (Maybe Aeson.Object)
+       (MonadIO m, MonadThrow m) => AccessToken -> m (Maybe Aeson.Object)
 getProfile (AccessToken at) = do
-	initReq <- parseRequest $
-		"https://userinfo.yahooapis.jp/yconnect/v1/attribute?" <>
-		"schema=openid"
-	let	req = setRequestHeader
-			"Authorization" ["Bearer " <> encodeUtf8 at] initReq
-	rBody <- getResponseBody <$> httpLBS req
-	return (Aeson.decode rBody :: Maybe Aeson.Object)
+       initReq <- parseRequest $
+               "https://userinfo.yahooapis.jp/yconnect/v1/attribute?" <>
+               "schema=openid"
+       let     req = setRequestHeader
+                       "Authorization" ["Bearer " <> encodeUtf8 at] initReq
+       rBody <- getResponseBody <$> httpLBS req
+       return (Aeson.decode rBody :: Maybe Aeson.Object)
 
 setProfile :: HashMap Text Aeson.Value -> MyHandler ()
 setProfile prf = flip (maybe $ putStrLn eMsg) pu $ \(p, u) -> runDB $ do
-	delete . from $ where_ . (==. val u) . (^. ProfileUserId)
-	() <$ insert p
-	where
-	eMsg = "setProfile: error"
-	pu = (,) <$> mp <*> uid
-	mp = Profile <$> uid <*> n <*> fn <*> gn <*> gd <*> bd <*> em
-	[uid, n, fn, gn, gd, bd_, em] = flip lookupString prf <$> [
-		"user_id", "name", "family_name", "given_name",
-		"gender", "birthday", "email" ]
-	bd = readMaybe =<< Txt.unpack <$> bd_
-	lookupString k = (unstring =<<) . HML.lookup k
-
-makeSession :: UserId -> MyHandler ()
-makeSession (UserId uid) = do
-	ssn <- lift (getRand 256)
-	now <- liftIO getCurrentTime
-	_ <- runDB $ do
-		delete . from $ \s ->
-			where_ $ s ^. SessionUserId ==. val uid
-		insert $ Session (rndToTxt ssn) uid now
-	setCookie def {
-		setCookieName = "session",
-		setCookieValue = rndToBs ssn,
-		setCookiePath = Just "/",
-		setCookieExpires = Nothing,
-		setCookieMaxAge = Just 1800,
-		setCookieDomain = Nothing,
-		setCookieHttpOnly = True,
-#ifdef DEVELOPMENT
-		setCookieSecure = False,
-#else
-		setCookieSecure = True,
-#endif
-		setCookieSameSite = Just sameSiteStrict
-		}
-
-makeAutoLogin :: UserId -> MyHandler ()
-makeAutoLogin (UserId uid) = do
-	al <- lift (getRand 512)
-	now <- liftIO getCurrentTime
-	_ <- runDB $ do
-		delete . from $ \s ->
-			where_ $ s ^. AutoLoginUserId ==. val uid
-		insert $ AutoLogin (rndToTxt al) uid now
-	setCookie def {
-		setCookieName = "auto-login",
-		setCookieValue = rndToBs al,
-		setCookiePath = Just "/",
-		setCookieExpires = Nothing,
-		setCookieMaxAge = Just 2592000,
-		setCookieDomain = Nothing,
-		setCookieHttpOnly = True,
-#ifdef DEVELOPMENT
-		setCookieSecure = False,
-#else
-		setCookieSecure = True,
-#endif
-		setCookieSameSite = Just sameSiteStrict
-		}
-
-updateAutoLogin :: UserId -> MyHandler ()
-updateAutoLogin (UserId uid) = do
-	al <- lift (getRand 512)
-	_ <- runDB $ do
-		update $ \a -> do
-			set a [ AutoLoginAutoLogin =. val (rndToTxt al) ]
-			where_ (a ^. AutoLoginUserId ==. val uid)
-	setCookie def {
-		setCookieName = "auto-login",
-		setCookieValue = rndToBs al,
-		setCookiePath = Just "/",
-		setCookieExpires = Nothing,
-		setCookieMaxAge = Just 2592000,
-		setCookieDomain = Nothing,
-		setCookieHttpOnly = True,
-#ifdef DEVELOPMENT
-		setCookieSecure = False,
-#else
-		setCookieSecure = True,
-#endif
-		setCookieSameSite = Just sameSiteStrict
-		}
-
-fromSession :: MyHandler (Maybe UserId)
-fromSession = do
-	session <- lookupCookie "session"
-	us <- flip (maybe $ return []) session $ \ssn ->
-		runDB $ select . from $ \s -> do
-			where_ $ s ^. SessionSession ==. (val ssn)
-			return $ s ^. SessionUserId
-	return $ case us of
-		[Value u] -> Just $ UserId u
-		_ -> Nothing
-
-fromAutoLogin :: Text -> MyHandler (Maybe UserId)
-fromAutoLogin al = do
-	uid <- runDB $ select . from $ \a -> do
-		where_ $ a ^. AutoLoginAutoLogin ==. (val al)
-		return $ a ^. AutoLoginUserId
-	return $ case uid of
-		[Value u] -> Just $ UserId u
-		_ -> Nothing
-
-getName :: UserId -> MyHandler (Maybe Text)
-getName (UserId u) = do
-	names <- runDB . select . from $ \p -> do
-			where_ $ p ^. ProfileUserId ==. val u
-			return $ p ^. ProfileName
-	return $ case names of
-		[Value n] -> Just n
-		_ -> Nothing
-
-newtype Random = Random { rndToBs :: ByteString }
-
-getRand :: MonadRandom m => Int -> m Random
-getRand = (Random . fst . BSC.spanEnd (== '=') . B64.encode <$>)
-	. getRandomBytes
-
-rndToTxt :: Random -> Text
-rndToTxt = decodeUtf8 . rndToBs
-
-unstring :: Aeson.Value -> Maybe Text
-unstring (String t) = Just t
-unstring _ = Nothing
+       delete . from $ where_ . (==. val u) . (^. ProfileUserId)
+       () <$ insert p
+       where
+       eMsg = "setProfile: error"
+       pu = (,) <$> mp <*> uid
+       mp = Profile <$> uid <*> n <*> fn <*> gn <*> gd <*> bd <*> em
+       [uid, n, fn, gn, gd, bd_, em] = flip lookupString prf <$> [
+               "user_id", "name", "family_name", "given_name",
+               "gender", "birthday", "email" ]
+       bd = readMaybe =<< Txt.unpack <$> bd_
+       lookupString k = (unstring =<<) . HML.lookup k

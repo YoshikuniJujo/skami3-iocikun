@@ -7,9 +7,8 @@ import Import (
 	Text, Handler, Html, HashMap, ($), (.), (<$>), (=<<), (>>=), (<>),
 	maybe, fst, either, on, show, compare, sortBy,
 	return, lift, map, mapM_, putStrLn, redirect )
-import OpenIdConn (
-	authenticate, makeSession, makeAutoLogin,
-	getProfile, setProfile )
+import OpenIdConn (authenticate, getProfile, setProfile)
+import MyDatabase (makeSession, makeAutoLogin)
 
 import qualified Data.Text as Txt
 import qualified Data.Aeson as Aeson

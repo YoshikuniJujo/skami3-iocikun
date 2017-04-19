@@ -3,7 +3,7 @@ module CheckLogined (checkLogined) where
 import Import.NoFoundation (
 	Maybe(..), Text, ($), (.), (=<<),
 	flip, maybe, fromMaybe, isJust, return, mapM_, lookupCookie )
-import OpenIdConn (
+import MyDatabase (
 	MyHandler, UserId,
 	fromSession, fromAutoLogin, getName, makeSession, updateAutoLogin )
 

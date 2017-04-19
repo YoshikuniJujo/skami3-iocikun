@@ -28,8 +28,9 @@ library
                      Handler.Logined
                      Handler.YLogout
                      OpenIdConn
-                     Environment
+                     MyDatabase
                      CheckLogined
+                     Environment
 
     if flag(dev) || flag(library-only)
         cpp-options:   -DDEVELOPMENT
