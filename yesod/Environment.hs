@@ -1,17 +1,16 @@
 module Environment (
-	ClientId(..), getClientId, cidToBs,
-	ClientSecret(..), getClientSecret, csToBs,
-	RedirectUri(..), getRedirectUri, ruToBs
+	ClientId, getClientId, cidToBs, cidToTxt,
+	ClientSecret, getClientSecret, csToBs,
+	RedirectUri, getRedirectUri, ruToBs, ruToTxt
 	) where
 
-import Prelude ((.), (<$>), Show, Eq)
-
-import System.IO (IO, FilePath)
-import System.FilePath ((</>))
+import Prelude (Show, Eq, (.), (<$>), (++))
 
 import Data.ByteString (ByteString)
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
+import System.IO (IO, FilePath)
+import System.FilePath ((</>))
 
 import qualified Data.Text as Txt
 import qualified Data.Text.IO as Txt
@@ -19,29 +18,30 @@ import qualified Data.Text.IO as Txt
 directory :: FilePath
 directory = "/home/tatsuya/keter/skami3/"
 
-newtype ClientId = ClientId Text deriving (Show, Eq)
+getRaw :: FilePath -> IO Text
+getRaw = (Txt.concat . Txt.lines <$>)
+	. Txt.readFile . (directory </>) . (++ ".txt")
+
+newtype ClientId = ClientId { cidToTxt :: Text } deriving (Show, Eq)
 
 getClientId :: IO ClientId
-getClientId = ClientId . Txt.concat . Txt.lines
-	<$> Txt.readFile (directory </> "clientId.txt")
+getClientId = ClientId <$> getRaw "clientId"
 
 cidToBs :: ClientId -> ByteString
-cidToBs (ClientId t) = encodeUtf8 t
+cidToBs = encodeUtf8 . cidToTxt
 
-newtype ClientSecret = ClientSecret Text
+newtype ClientSecret = ClientSecret { csToTxt :: Text }
 
 getClientSecret :: IO ClientSecret
-getClientSecret = ClientSecret . Txt.concat . Txt.lines
-	<$> Txt.readFile (directory </> "clientSecret.txt")
+getClientSecret = ClientSecret <$> getRaw "clientSecret"
 
 csToBs :: ClientSecret -> ByteString
-csToBs (ClientSecret t) = encodeUtf8 t
+csToBs = encodeUtf8 . csToTxt
 
-newtype RedirectUri = RedirectUri Text
+newtype RedirectUri = RedirectUri { ruToTxt :: Text }
 
 getRedirectUri :: IO RedirectUri
-getRedirectUri = RedirectUri . Txt.concat . Txt.lines
-	<$> Txt.readFile (directory </> "redirectUri.txt")
+getRedirectUri = RedirectUri <$> getRaw "redirectUri"
 
 ruToBs :: RedirectUri -> ByteString
-ruToBs (RedirectUri t) = encodeUtf8 t
+ruToBs = encodeUtf8 . ruToTxt

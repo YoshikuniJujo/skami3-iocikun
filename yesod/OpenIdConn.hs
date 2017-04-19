@@ -45,7 +45,7 @@ yconnect :: (BaseBackend (YesodPersistBackend site) ~ SqlBackend,
 		PersistStoreWrite (YesodPersistBackend site),
 		YesodPersist site) =>
 	ClientId -> RedirectUri -> HandlerT site IO b
-yconnect (ClientId cid) (RedirectUri ruri) = do
+yconnect cid ruri = do
 	(state, nonce, date) <- lift
 		$ (,,) <$> getNonce 256 <*> getNonce 256 <*> getCurrentTime
 	_ <- runDB $ insert $ OpenIdStateNonce state nonce date
@@ -55,10 +55,10 @@ yconnect (ClientId cid) (RedirectUri ruri) = do
 		"https://auth.login.yahoo.co.jp/yconnect/v1/authorization?" <>
 		"response_type=code+id_token&" <>
 		"scope=openid+profile+email&" <>
-		"client_id=" <> cid <> "&" <>
+		"client_id=" <> cidToTxt cid <> "&" <>
 		"state=" <> state <> "&" <>
 		"nonce=" <> nonce <> "&" <>
-		"redirect_uri=" <> ruri <> "&" <>
+		"redirect_uri=" <> ruToTxt ruri <> "&" <>
 		"bail=1"
 
 lookupGetCode :: MonadHandler f => f (Maybe Code)
@@ -234,17 +234,17 @@ checkGen :: Iss -> (Aud, ClientId) -> (Iat, Exp, Now) -> (Nonce1, Nonce0) ->
 	(ClientSecret, Header, Payload, Signature) ->
 	(UserId, AccessToken) ->
 	Either String (UserId, AccessToken)
-checkGen (Iss iss) (Aud aud, ClientId cid) (Iat iat, Exp ex, Now now)
+checkGen (Iss iss) (Aud aud, cid) (Iat iat, Exp ex, Now now)
 	(Nonce1 n1, Nonce0 n0)
-	(ClientSecret cs, Header hd, Payload pl, Signature sg)
+	(cs, Header hd, Payload pl, Signature sg)
 	(uid, at) = do
 	when (iss /= "https://auth.login.yahoo.co.jp") $ Left "BAD ISS"
-	when (aud /= cid) $ Left "BAD AUD"
+	when (aud /= cidToTxt cid) $ Left "BAD AUD"
 	when (iat < now - 600) $ Left "BAD IAT"
 	when (ex < now) $ Left "BAD EXP"
 	when (n1 /= n0) $ Left "BAD NONCE"
 	let sg1 = decodeUtf8
-		. fst . BSC.spanEnd (== '=') . hmacSha256 (encodeUtf8 cs)
+		. fst . BSC.spanEnd (== '=') . hmacSha256 (csToBs cs)
 		$ encodeUtf8 hd <> "." <> encodeUtf8 pl
 	when (sg1 /= sg) $ Left "BAD SIGNATURE"
 	return (uid, at)
