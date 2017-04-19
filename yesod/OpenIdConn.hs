@@ -1,15 +1,15 @@
 {-# LANGUAGE ScopedTypeVariables, Rank2Types #-}
 
 module OpenIdConn (
-	UserId, AccessToken, MyHandler,
+	MyHandler, UserId, AccessToken,
 	yconnect, authenticate,
-	getProfile, setProfile, showProfile,
+	getProfile, setProfile,
 	makeSession, makeAutoLogin, updateAutoLogin,
-	fromAutoLogin, fromSession, getName ) where
+	fromSession, fromAutoLogin, getName ) where
 
-import Prelude (read)
 import Import.NoFoundation hiding (
 	UserId, (==.), delete, Header, check, authenticate, lookup, (=.), update )
+import Text.Read (readMaybe)
 
 import Environment
 
@@ -19,7 +19,6 @@ import Control.Arrow (left)
 
 import Data.ByteArray
 import Data.Time.Clock.POSIX
-import Data.Scientific
 import Network.HTTP.Simple
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Crypto.Hash.Algorithms (SHA256)
@@ -35,45 +34,28 @@ import qualified Data.HashMap.Lazy as HML
 
 import Web.Cookie (SetCookie(..), sameSiteStrict)
 
-import qualified Data.Text.Encoding as TE
-
-type MyHandler a = forall site . (BaseBackend (YesodPersistBackend site) ~ SqlBackend,
+type MyHandler a = forall site . (
+		BaseBackend (YesodPersistBackend site) ~ SqlBackend,
 		PersistQueryWrite (YesodPersistBackend site),
 		PersistUniqueWrite (YesodPersistBackend site),
 		IsPersistBackend (YesodPersistBackend site),
-		YesodPersist site) =>
-	HandlerT site IO a
+		YesodPersist site ) => HandlerT site IO a
 
-getNonce :: MonadRandom m => Int -> m Text
-getNonce = (Txt.dropWhileEnd (== '=') . decodeUtf8 . B64.encode <$>)
-	. getRandomBytes
-
-yconnect :: (BaseBackend (YesodPersistBackend site) ~ SqlBackend,
-		PersistQueryRead (YesodPersistBackend site),
-		PersistStoreWrite (YesodPersistBackend site),
-		YesodPersist site) =>
-	ClientId -> RedirectUri -> HandlerT site IO b
+yconnect :: ClientId -> RedirectUri -> MyHandler a
 yconnect cid ruri = do
 	(state, nonce, date) <- lift
-		$ (,,) <$> getNonce 256 <*> getNonce 256 <*> getCurrentTime
-	_ <- runDB $ insert $ OpenIdStateNonce state nonce date
-	runDB (selectList ([] :: [Filter OpenIdStateNonce]) [])
-		>>= mapM_ print
+		$ (,,) <$> getRand 256 <*> getRand 256 <*> getCurrentTime
+	_ <- runDB . insert
+		$ OpenIdStateNonce (rndToTxt state) (rndToTxt nonce) date
 	redirect $
 		"https://auth.login.yahoo.co.jp/yconnect/v1/authorization?" <>
 		"response_type=code+id_token&" <>
 		"scope=openid+profile+email&" <>
 		"client_id=" <> cidToTxt cid <> "&" <>
-		"state=" <> state <> "&" <>
-		"nonce=" <> nonce <> "&" <>
+		"state=" <> rndToTxt state <> "&" <>
+		"nonce=" <> rndToTxt nonce <> "&" <>
 		"redirect_uri=" <> ruToTxt ruri <> "&" <>
 		"bail=1"
-
-lookupGetCode :: MonadHandler f => f (Maybe Code)
-lookupGetCode = (Code <$>) <$> lookupGetParam "code"
-
-lookupGetState :: MonadHandler f => f (Maybe State)
-lookupGetState = (State <$>) <$> lookupGetParam "state"
 
 newtype State = State Text
 newtype Nonce0 = Nonce0 Text
@@ -105,37 +87,26 @@ payloadToAeson Nothing = Left "Can't get PAYLOAD"
 toAeson :: Text -> Either String Aeson.Object
 toAeson t = do
 	b <- left ("B64.decode error: " ++)
-		. B64.decode . encodeUtf8 $ padding t
+		. B64.decode $ encodeUtf8 padded
 	maybe (Left "Aeson.decode error") Right
 		. Aeson.decode $ LBS.fromStrict b
+	where
+	padded = t <> Txt.replicate (3 - (Txt.length t - 1) `mod` 4) "="
 
 newtype TokenType = TokenType Text deriving (Show, Eq)
 
 newtype UserId = UserId Text deriving Show
 newtype AccessToken = AccessToken Text deriving Show
 
--- authenticate, logined :: Handler (Either String (UserId, AccessToken))
--- authenticate, logined :: HandlerT App IO (Either String (UserId, AccessToken))
-authenticate, logined :: (BaseBackend (YesodPersistBackend site) ~ SqlBackend,
-		PersistUniqueWrite (YesodPersistBackend site),
-		PersistQueryWrite (YesodPersistBackend site),
-		YesodPersist site,
-		IsPersistBackend (YesodPersistBackend site)) =>
-	HandlerT site IO (Either String (UserId, AccessToken))
-authenticate = logined
-
-logined = do
+authenticate :: MyHandler (Either String (UserId, AccessToken))
+authenticate = do
 	cs <- (\c s -> (,) <$> c <*> s) <$> lookupGetCode <*> lookupGetState
 	maybe (return $ Left "no code or state") (uncurry logined_) cs
+	where
+	lookupGetCode = (Code <$>) <$> lookupGetParam "code"
+	lookupGetState = (State <$>) <$> lookupGetParam "state"
 
--- logined_ ::
---	Code -> State -> HandlerT App IO (Either String (UserId, AccessToken))
-logined_ :: (BaseBackend (YesodPersistBackend site) ~ SqlBackend,
-		PersistUniqueWrite (YesodPersistBackend site),
-		PersistQueryWrite (YesodPersistBackend site),
-		YesodPersist site,
-		IsPersistBackend (YesodPersistBackend site)) =>
-	Code -> State -> HandlerT site IO (Either String (UserId, AccessToken))
+logined_ :: Code -> State -> MyHandler (Either String (UserId, AccessToken))
 logined_ code (State state) = do
 	nonce <- runDB $ do
 		n <- select . from $ \sn -> do
@@ -174,6 +145,9 @@ loginedGen code n0 = do
 	now <- lift getPOSIXTime
 	return $ something tt clientId clientSecret n0 (Now now) =<<
 		maybe (Left "Can't decode to Aeson.Object") Right resp
+	where
+	basicAuthentication cid cs = ("Authorization", ["Basic " <> mkClientIdSecret])
+		where mkClientIdSecret = B64.encode $ cidToBs cid <> ":" <> csToBs cs
 
 something :: Maybe TokenType -> ClientId -> ClientSecret -> Nonce0 -> Now ->
 	HashMap Text Aeson.Value -> (Either String (UserId, AccessToken))
@@ -205,6 +179,9 @@ something tt clientId clientSecret n0 now resp = do
 		("typ", String "JWT") ]) $ Left "BAD HEADER"
 	check miss (maud, clientId) (miat, mex, now) (mn1, n0)
 		(clientSecret, mhd, mpl, msg) (muid, mat)
+	where
+	unnumber (Number n) = Just n
+	unnumber _ = Nothing
 
 type M = Maybe
 
@@ -256,33 +233,8 @@ checkGen (Iss iss) (Aud aud, cid) (Iat iat, Exp ex, Now now)
 		$ encodeUtf8 hd <> "." <> encodeUtf8 pl
 	when (sg1 /= sg) $ Left "BAD SIGNATURE"
 	return (uid, at)
-
-basicAuthentication ::
-	IsString s => ClientId -> ClientSecret -> (s, [ByteString])
-basicAuthentication cid cs = ("Authorization", ["Basic " <> mkClientIdSecret])
-	where mkClientIdSecret = B64.encode $ cidToBs cid <> ":" <> csToBs cs
-
-unstring :: Aeson.Value -> Maybe Text
-unstring (String t) = Just t
-unstring _ = Nothing
-
-unnumber :: Aeson.Value -> Maybe Scientific
-unnumber (Number n) = Just n
-unnumber _ = Nothing
-
-hmacSha256 :: ByteString -> ByteString -> ByteString
-hmacSha256 s d = B64.encode . convert $ hmacGetDigest (hmac s d :: HMAC SHA256)
-
-padding :: Text -> Text
-padding t = t <> Txt.replicate (3 - (Txt.length t - 1) `mod` 4) "="
-
-showProfile :: HashMap Text Aeson.Value -> [Text]
-showProfile json =
-	map showSimple . sortBy (compare `on` fst) . HML.toList $ json
 	where
-	showSimple :: (Text, Aeson.Value) -> Text
-	showSimple (k, String v) = k <> ": " <> v
-	showSimple (k, v) = k <> ": " <> Txt.pack (show v)
+	hmacSha256 s d = B64.encode . convert $ hmacGetDigest (hmac s d :: HMAC SHA256)
 
 getProfile ::
 	(MonadIO m, MonadThrow m) => AccessToken -> m (Maybe Aeson.Object)
@@ -295,25 +247,31 @@ getProfile (AccessToken at) = do
 	rBody <- getResponseBody <$> httpLBS req
 	return (Aeson.decode rBody :: Maybe Aeson.Object)
 
-lookupString :: (Hashable k, Eq k) => k -> HashMap k Aeson.Value -> Maybe Text
-lookupString k = (unstring =<<) . HML.lookup k
+setProfile :: HashMap Text Aeson.Value -> MyHandler ()
+setProfile prf = flip (maybe $ putStrLn eMsg) pu $ \(p, u) -> runDB $ do
+	delete . from $ where_ . (==. val u) . (^. ProfileUserId)
+	() <$ insert p
+	where
+	eMsg = "setProfile: error"
+	pu = (,) <$> mp <*> uid
+	mp = Profile <$> uid <*> n <*> fn <*> gn <*> gd <*> bd <*> em
+	[uid, n, fn, gn, gd, bd_, em] = flip lookupString prf <$> [
+		"user_id", "name", "family_name", "given_name",
+		"gender", "birthday", "email" ]
+	bd = readMaybe =<< Txt.unpack <$> bd_
+	lookupString k = (unstring =<<) . HML.lookup k
 
-makeSession :: (BaseBackend (YesodPersistBackend site) ~ SqlBackend,
-		PersistUniqueWrite (YesodPersistBackend site),
-		PersistQueryWrite (YesodPersistBackend site),
-		IsPersistBackend (YesodPersistBackend site),
-		YesodPersist site) =>
-	UserId -> HandlerT site IO ()
+makeSession :: UserId -> MyHandler ()
 makeSession (UserId uid) = do
-	ssn <- lift (getNonce 256)
+	ssn <- lift (getRand 256)
 	now <- liftIO getCurrentTime
 	_ <- runDB $ do
 		delete . from $ \s ->
 			where_ $ s ^. SessionUserId ==. val uid
-		insert $ Session ssn uid now
+		insert $ Session (rndToTxt ssn) uid now
 	setCookie def {
 		setCookieName = "session",
-		setCookieValue = encodeUtf8 ssn,
+		setCookieValue = rndToBs ssn,
 		setCookiePath = Just "/",
 		setCookieExpires = Nothing,
 		setCookieMaxAge = Just 1800,
@@ -327,22 +285,17 @@ makeSession (UserId uid) = do
 		setCookieSameSite = Just sameSiteStrict
 		}
 
-makeAutoLogin :: (BaseBackend (YesodPersistBackend site) ~ SqlBackend,
-		PersistUniqueWrite (YesodPersistBackend site),
-		PersistQueryWrite (YesodPersistBackend site),
-		IsPersistBackend (YesodPersistBackend site),
-		YesodPersist site) =>
-	UserId -> HandlerT site IO ()
+makeAutoLogin :: UserId -> MyHandler ()
 makeAutoLogin (UserId uid) = do
-	al <- lift (getNonce 512)
+	al <- lift (getRand 512)
 	now <- liftIO getCurrentTime
 	_ <- runDB $ do
 		delete . from $ \s ->
 			where_ $ s ^. AutoLoginUserId ==. val uid
-		insert $ AutoLogin al uid now
+		insert $ AutoLogin (rndToTxt al) uid now
 	setCookie def {
 		setCookieName = "auto-login",
-		setCookieValue = encodeUtf8 al,
+		setCookieValue = rndToBs al,
 		setCookiePath = Just "/",
 		setCookieExpires = Nothing,
 		setCookieMaxAge = Just 2592000,
@@ -356,21 +309,16 @@ makeAutoLogin (UserId uid) = do
 		setCookieSameSite = Just sameSiteStrict
 		}
 
-updateAutoLogin :: (BaseBackend (YesodPersistBackend site) ~ SqlBackend,
-		PersistUniqueWrite (YesodPersistBackend site),
-		PersistQueryWrite (YesodPersistBackend site),
-		YesodPersist site,
-		IsPersistBackend (YesodPersistBackend site)) =>
-	UserId -> HandlerT site IO ()
+updateAutoLogin :: UserId -> MyHandler ()
 updateAutoLogin (UserId uid) = do
-	al <- lift (getNonce 512)
+	al <- lift (getRand 512)
 	_ <- runDB $ do
 		update $ \a -> do
-			set a [ AutoLoginAutoLogin =. val al ]
+			set a [ AutoLoginAutoLogin =. val (rndToTxt al) ]
 			where_ (a ^. AutoLoginUserId ==. val uid)
 	setCookie def {
 		setCookieName = "auto-login",
-		setCookieValue = TE.encodeUtf8 al,
+		setCookieValue = rndToBs al,
 		setCookiePath = Just "/",
 		setCookieExpires = Nothing,
 		setCookieMaxAge = Just 2592000,
@@ -383,24 +331,6 @@ updateAutoLogin (UserId uid) = do
 #endif
 		setCookieSameSite = Just sameSiteStrict
 		}
-
-setProfile :: (BaseBackend (YesodPersistBackend site) ~ SqlBackend,
-		PersistUniqueWrite (YesodPersistBackend site),
-		PersistQueryWrite (YesodPersistBackend site),
-		YesodPersist site,
-		IsPersistBackend (YesodPersistBackend site)) =>
-	HashMap Text Aeson.Value -> HandlerT site IO ()
-setProfile prf = flip (maybe $ putStrLn eMsg) pu $ \(p, u) -> runDB $ do
-	delete . from $ where_ . (==. val u) . (^. ProfileUserId)
-	() <$ insert p
-	where
-	eMsg = "setProfile: error"
-	pu = (,) <$> mp <*> uid
-	mp = Profile <$> uid <*> n <*> fn <*> gn <*> gd <*> bd <*> em
-	[uid, n, fn, gn, gd, bd_, em] = flip lookupString prf <$> [
-		"user_id", "name", "family_name", "given_name",
-		"gender", "birthday", "email" ]
-	bd = read . Txt.unpack <$> bd_
 
 fromSession :: MyHandler (Maybe UserId)
 fromSession = do
@@ -430,3 +360,16 @@ getName (UserId u) = do
 	return $ case names of
 		[Value n] -> Just n
 		_ -> Nothing
+
+newtype Random = Random { rndToBs :: ByteString }
+
+getRand :: MonadRandom m => Int -> m Random
+getRand = (Random . fst . BSC.spanEnd (== '=') . B64.encode <$>)
+	. getRandomBytes
+
+rndToTxt :: Random -> Text
+rndToTxt = decodeUtf8 . rndToBs
+
+unstring :: Aeson.Value -> Maybe Text
+unstring (String t) = Just t
+unstring _ = Nothing
