@@ -1,10 +1,11 @@
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ScopedTypeVariables, Rank2Types #-}
 
 module OpenIdConn (
-	UserId(..), AccessToken,
+	UserId, AccessToken, MyHandler,
 	yconnect, authenticate,
 	getProfile, setProfile, showProfile,
-	makeSession, makeAutoLogin, updateAutoLogin ) where
+	makeSession, makeAutoLogin, updateAutoLogin,
+	fromAutoLogin, fromSession, getName ) where
 
 import Prelude (read)
 import Import.NoFoundation hiding (
@@ -35,6 +36,13 @@ import qualified Data.HashMap.Lazy as HML
 import Web.Cookie (SetCookie(..), sameSiteStrict)
 
 import qualified Data.Text.Encoding as TE
+
+type MyHandler a = forall site . (BaseBackend (YesodPersistBackend site) ~ SqlBackend,
+		PersistQueryWrite (YesodPersistBackend site),
+		PersistUniqueWrite (YesodPersistBackend site),
+		IsPersistBackend (YesodPersistBackend site),
+		YesodPersist site) =>
+	HandlerT site IO a
 
 getNonce :: MonadRandom m => Int -> m Text
 getNonce = (Txt.dropWhileEnd (== '=') . decodeUtf8 . B64.encode <$>)
@@ -393,3 +401,32 @@ setProfile prf = flip (maybe $ putStrLn eMsg) pu $ \(p, u) -> runDB $ do
 		"user_id", "name", "family_name", "given_name",
 		"gender", "birthday", "email" ]
 	bd = read . Txt.unpack <$> bd_
+
+fromSession :: MyHandler (Maybe UserId)
+fromSession = do
+	session <- lookupCookie "session"
+	us <- flip (maybe $ return []) session $ \ssn ->
+		runDB $ select . from $ \s -> do
+			where_ $ s ^. SessionSession ==. (val ssn)
+			return $ s ^. SessionUserId
+	return $ case us of
+		[Value u] -> Just $ UserId u
+		_ -> Nothing
+
+fromAutoLogin :: Text -> MyHandler (Maybe UserId)
+fromAutoLogin al = do
+	uid <- runDB $ select . from $ \a -> do
+		where_ $ a ^. AutoLoginAutoLogin ==. (val al)
+		return $ a ^. AutoLoginUserId
+	return $ case uid of
+		[Value u] -> Just $ UserId u
+		_ -> Nothing
+
+getName :: UserId -> MyHandler (Maybe Text)
+getName (UserId u) = do
+	names <- runDB . select . from $ \p -> do
+			where_ $ p ^. ProfileUserId ==. val u
+			return $ p ^. ProfileName
+	return $ case names of
+		[Value n] -> Just n
+		_ -> Nothing
