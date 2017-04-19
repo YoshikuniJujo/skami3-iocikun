@@ -28,7 +28,7 @@ import qualified Data.Text as Txt
 import qualified Data.Aeson as Aeson
 import qualified Data.HashMap.Lazy as HML
 
-import MyDatabase (
+import Common (
 	MyHandler, AccessToken(..), UserId(..), unstring,
 	getRand, rndToTxt )
 
