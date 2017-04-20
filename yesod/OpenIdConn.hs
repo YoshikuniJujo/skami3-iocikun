@@ -4,8 +4,6 @@ module OpenIdConn (
 	UserId, AccessToken,
 	yconnect, authenticate, getProfile, setProfile ) where
 
-import Prelude (undefined)
-
 import Control.Arrow (left)
 import Data.ByteArray (convert)
 import Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime, getCurrentTime)
@@ -19,8 +17,8 @@ import Database.Esqueleto (
 	Value(..), (^.), (==.), select, insert, delete, from, where_, val )
 
 import Import.NoFoundation (
-	Eq, Show, MonadTrans, MonadIO, MonadThrow,
-	IO, Maybe(..), Either(..), Text, ByteString, String, HashMap,
+	Eq, Show, MonadIO, MonadThrow,
+	Maybe(..), Either(..), Text, ByteString, String, HashMap,
 	Profile(..), Value(..), RequestBody(..), HeaderName,
 	($), (.), (<$>), (<$), (<*>), (=<<),
 	(/=), (==), (<), (<>), (++), (-),
@@ -70,33 +68,13 @@ authenticate cid csc ruri = do
 	cs <- (\c s -> (,) <$> c <*> s) <$> lookupGetCode <*> lookupGetState
 	flip (maybe . return $ Left "no code or state") cs $ \(c, s) -> do
 		en <- getNonceFromState s
-		either (return . Left) (lift . logined cid csc ruri c) en
-
-logined :: ClientId -> ClientSecret -> RedirectUri -> Code -> Nonce0 ->
-	IO (Either String (UserId, AccessToken))
-logined cid cs ruri code n0 = do
-	initReq <-
-		parseRequest "https://auth.login.yahoo.co.jp/yconnect/v1/token"
-	let	req = foldr (uncurry setRequestHeader)
-			initReq { method = "POST" } [
-			("Content-Type", ["application/x-www-form-urlencoded"]),
-			basicAuthentication cid cs ]
-		req' = (`setRequestBody` req) . RequestBodyBS $
-			"grant_type=authorization_code&" <>
-			"code=" <> codeToBs code <> "&" <>
-			"redirect_uri=" <> ruToBs ruri
-	resp :: Maybe Aeson.Object <-
-		Aeson.decode . getResponseBody <$> httpLBS req'
-	let	tt = TokenType
-			<$> (unstring =<< HML.lookup "token_type" =<< resp)
-	now <- getPOSIXTime
-	return $ something tt cid cs n0 (Now now) =<<
-		maybe (Left "Can't decode to Aeson.Object") Right resp
-
-basicAuthentication :: ClientId -> ClientSecret -> (HeaderName, [ByteString])
-basicAuthentication cid' cs' = (
-	"Authorization",
-	["Basic " <> B64.encode (cidToBs cid' <> ":" <> csToBs cs')] )
+		flip (either $ return . Left) en . (lift .) $ \n0 -> do
+			uaTbc <- requestUserId cid csc ruri c
+			now <- getPOSIXTime
+			return $ do
+				(ua, tbc) <- uaTbc
+				checkAll cid csc n0 now tbc
+				return ua
 
 requestUserId :: (MonadIO m, MonadThrow m) =>
 	ClientId -> ClientSecret -> RedirectUri -> Code ->
@@ -114,23 +92,30 @@ requestUserId cid cs ruri code = do
 			"redirect_uri=" <> ruToBs ruri
 	resp :: Maybe Aeson.Object <-
 		Aeson.decode . getResponseBody <$> httpLBS req'
-	let	tt = TokenType
-			<$> (unstring =<< HML.lookup "token_type" =<< resp)
+	let	ett = TokenType <$> maybe (Left "NO TOKEN_TYPE") Right
+			(unstring =<< HML.lookup "token_type" =<< resp)
 		eat = AccessToken <$> maybe (Left "NO ACCESS_TOKEN") Right
 			(unstring =<< HML.lookup "access_token" =<< resp)
 		eit = maybe (Left "NO ID_TOKEN") Right
 			$ unstring =<< HML.lookup "id_token" =<< resp
-	return $ (\u a tbc -> ((u, a), tbc))
-		<$> undefined
-		<*> eat
-		<*> undefined
+	return $ do
+		tt <- ett
+		it <- eit
+		at <- eat
+		(uid, tbc) <- getUidAndTbc tt it
+		return ((uid, at), tbc)
+
+basicAuthentication :: ClientId -> ClientSecret -> (HeaderName, [ByteString])
+basicAuthentication cid' cs' = (
+	"Authorization",
+	["Basic " <> B64.encode (cidToBs cid' <> ":" <> csToBs cs')] )
 
 getUidAndTbc :: TokenType -> Text -> Either String (UserId, ToBeChecked)
 getUidAndTbc tt it = do
 	(hd, pl, sg) <- case Txt.splitOn "." it of
 		[h, p, s] -> return (h, p, s)
 		_ -> Left "BAD ID_TOKEN"
-	pld <- payloadToAeson' (Payload pl)
+	pld <- payloadToAeson (Payload pl)
 	uid <- UserId <$> maybe (Left "NO USER_ID") Right
 		(unstring =<< HML.lookup "user_id" pld)
 	iss <- Iss <$> maybe (Left "NO ISS") Right
@@ -156,36 +141,35 @@ getUidAndTbc tt it = do
 		tbcPayload = Payload pl,
 		tbcSignature = Signature sg } )
 
-something :: Maybe TokenType -> ClientId -> ClientSecret -> Nonce0 -> Now ->
-	HashMap Text Aeson.Value -> (Either String (UserId, AccessToken))
-something tt clientId clientSecret n0 now resp = do
-	let
-		mat = AccessToken
-			<$> (unstring =<< HML.lookup "access_token" resp)
-		mit = unstring =<< HML.lookup "id_token" resp
-		(mhd, mpl, msg) = case Txt.splitOn "." <$> mit of
-			Just [h, p, s] -> (
-				Just $ Header h,
-				Just $ Payload p,
-				Just $ Signature s)
-			_ -> (Nothing, Nothing, Nothing)
-	pld <- payloadToAeson mpl
-	let
-		miss = Iss <$> (unstring =<< HML.lookup "iss" pld)
-		maud = Aud <$> (unstring =<< HML.lookup "aud" pld)
-		miat = Iat . fromRational . toRational
-			<$> (unnumber =<< HML.lookup "iat" pld)
-		mex = Exp . fromRational . toRational
-			<$> (unnumber =<< HML.lookup "exp" pld)
-		mn1 = Nonce1 <$> (unstring =<< HML.lookup "nonce" pld)
-		muid = UserId <$> (unstring =<< HML.lookup "user_id" pld)
-	hdd <- headerToAeson mhd
-	when (tt /= Just (TokenType "bearer")) $ Left "BAD TOKEN_TYPE"
+checkAll ::
+	ClientId -> ClientSecret -> Nonce0 -> POSIXTime -> ToBeChecked ->
+	Either String ()
+checkAll cid cs (Nonce0 n0) now tbc = do
+	when (tbcTokenType tbc /= TokenType "bearer") $
+		Left "BAD TOKEN_TYPE"
+	hdd <- headerToAeson $ tbcHeader tbc
 	when (hdd /= HML.fromList [
 		("alg", String "HS256"),
 		("typ", String "JWT") ]) $ Left "BAD HEADER"
-	check miss (maud, clientId) (miat, mex, now) (mn1, n0)
-		(clientSecret, mhd, mpl, msg) (muid, mat)
+	when (iss /= "https://auth.login.yahoo.co.jp") $ Left "BAD ISS"
+	when (aud /= cidToTxt cid) $ Left "BAD AUD"
+	when (iat < now - 600) $ Left "BAD IAT"
+	when (ex < now) $ Left "BAD EXP"
+	when (n1 /= n0) $ Left "BAD NONCE"
+	let sg1 = Signature . decodeUtf8
+		. fst . BSC.spanEnd (== '=') . hmacSha256 (csToBs cs)
+		$ encodeUtf8 hd <> "." <> encodeUtf8 pl
+	when (sg1 /= sg) $ Left "BAD SIGNATURE"
+	where
+	hmacSha256 s d = B64.encode . convert $ hmacGetDigest (hmac s d :: HMAC SHA256)
+	Iss iss = tbcIss tbc
+	Aud aud = tbcAud tbc
+	Iat iat = tbcIat tbc
+	Exp ex = tbcExp tbc
+	Nonce1 n1 = tbcNonce tbc
+	sg = tbcSignature tbc
+	Header hd = tbcHeader tbc
+	Payload pl = tbcPayload tbc
 
 newtype Iss = Iss Text deriving Show
 newtype Aud = Aud Text deriving Show
@@ -194,21 +178,16 @@ newtype Iat = Iat POSIXTime deriving Show
 newtype Exp = Exp POSIXTime deriving Show
 newtype Nonce1 = Nonce1 Text deriving Show
 
-newtype Signature = Signature Text deriving Show
+newtype Signature = Signature Text deriving (Eq, Show)
 
 newtype Header = Header Text deriving Show
 newtype Payload = Payload Text deriving Show
 
-headerToAeson :: Maybe Header -> Either String Aeson.Object
-headerToAeson (Just (Header t)) = toAeson t
-headerToAeson Nothing = Left "Can't get HEADER"
+headerToAeson :: Header -> Either String Aeson.Object
+headerToAeson (Header t) = toAeson t
 
-payloadToAeson :: Maybe Payload -> Either String Aeson.Object
-payloadToAeson (Just (Payload t)) = toAeson t
-payloadToAeson Nothing = Left "Can't get PAYLOAD"
-
-payloadToAeson' :: Payload -> Either String Aeson.Object
-payloadToAeson' (Payload t) = toAeson t
+payloadToAeson :: Payload -> Either String Aeson.Object
+payloadToAeson (Payload t) = toAeson t
 
 toAeson :: Text -> Either String Aeson.Object
 toAeson t = do
@@ -221,38 +200,6 @@ toAeson t = do
 
 newtype TokenType = TokenType Text deriving (Show, Eq)
 
-type M = Maybe
-
-check :: M Iss -> (M Aud, ClientId) -> (M Iat, M Exp, Now) ->
-	(M Nonce1, Nonce0) ->
-	(ClientSecret, M Header, M Payload, M Signature) ->
-	(M UserId, M AccessToken) ->
-	Either String (UserId, AccessToken)
-check miss (maud, cid) (miat, mex, now) (mn1, n0) (cs, mhd, mpl, msg)
-	(muid, mat) = do
-	(iss, aud, iat, ex, n1, hd, pl, sg, uid, at) <-
-		existence miss maud miat mex mn1 mhd mpl msg muid mat
-	checkGen iss (aud, cid)
-		(iat, ex, now) (n1, n0) (cs, hd, pl, sg) (uid, at)
-
-existence :: M Iss -> M Aud -> M Iat -> M Exp -> M Nonce1 -> M Header ->
-	M Payload -> M Signature -> M UserId -> M AccessToken ->
-	Either String (
-		Iss, Aud, Iat, Exp, Nonce1, Header, Payload, Signature,
-		UserId, AccessToken )
-existence miss maud miat mexp mn1 mhd mpl msg mui mat = do
-	iss <- maybe (Left "NO ISS") Right miss
-	aud <- maybe (Left "NO AUD") Right maud
-	iat <- maybe (Left "NO IAT") Right miat
-	ex <- maybe (Left "NO EXP") Right mexp
-	n1 <- maybe (Left "NO NONCE") Right mn1
-	hd <- maybe (Left "NO HEADER") Right mhd
-	pl <- maybe (Left "NO PAYLOAD") Right mpl
-	sg <- maybe (Left "NO SIGNATURE") Right msg
-	ui <- maybe (Left "NO USERID") Right mui
-	at <- maybe (Left "NO ACCESSTOKEN") Right mat
-	return (iss, aud, iat, ex, n1, hd, pl, sg, ui, at)
-
 data ToBeChecked = ToBeChecked {
 	tbcTokenType :: TokenType,
 	tbcIss :: Iss,
@@ -263,33 +210,6 @@ data ToBeChecked = ToBeChecked {
 	tbcHeader :: Header,
 	tbcPayload :: Payload,
 	tbcSignature :: Signature }
-
-data CheckWith = CheckWith {
-	cwClientId :: ClientId,
-	cwClientSecret :: ClientSecret,
-	cwNow :: Now,
-	cwNonce :: Nonce0 }
-
-checkGen :: Iss -> (Aud, ClientId) -> (Iat, Exp, Now) -> (Nonce1, Nonce0) ->
-	(ClientSecret, Header, Payload, Signature) ->
-	(UserId, AccessToken) ->
-	Either String (UserId, AccessToken)
-checkGen (Iss iss) (Aud aud, cid) (Iat iat, Exp ex, Now now)
-	(Nonce1 n1, Nonce0 n0)
-	(cs, Header hd, Payload pl, Signature sg)
-	(uid, at) = do
-	when (iss /= "https://auth.login.yahoo.co.jp") $ Left "BAD ISS"
-	when (aud /= cidToTxt cid) $ Left "BAD AUD"
-	when (iat < now - 600) $ Left "BAD IAT"
-	when (ex < now) $ Left "BAD EXP"
-	when (n1 /= n0) $ Left "BAD NONCE"
-	let sg1 = decodeUtf8
-		. fst . BSC.spanEnd (== '=') . hmacSha256 (csToBs cs)
-		$ encodeUtf8 hd <> "." <> encodeUtf8 pl
-	when (sg1 /= sg) $ Left "BAD SIGNATURE"
-	return (uid, at)
-	where
-	hmacSha256 s d = B64.encode . convert $ hmacGetDigest (hmac s d :: HMAC SHA256)
 
 newtype Code = Code Text
 newtype State = State Text
