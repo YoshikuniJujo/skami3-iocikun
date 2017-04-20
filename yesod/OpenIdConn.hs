@@ -1,36 +1,51 @@
 {-# LANGUAGE ScopedTypeVariables, Rank2Types #-}
 
 module OpenIdConn (
-	MyHandler, UserId, AccessToken,
-	yconnect, authenticate,
-	getProfile, setProfile ) where
-
-import Import.NoFoundation hiding (
-	UserId, (==.), delete, Header, check, authenticate, lookup, (=.), update )
-import Text.Read (readMaybe)
-
-import Environment
+	UserId, AccessToken,
+	yconnect, authenticate, getProfile, setProfile ) where
 
 import Control.Arrow (left)
-
-import Data.ByteArray
-import Data.Time.Clock.POSIX
-import Network.HTTP.Simple
+import Data.ByteArray (convert)
+import Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime, getCurrentTime)
+import Text.Read (readMaybe)
+import Network.HTTP.Simple (
+	httpLBS, getResponseBody,
+	parseRequest, setRequestBody, setRequestHeader )
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Crypto.Hash.Algorithms (SHA256)
-import Database.Esqueleto hiding (on) -- (Value(..), (^.), val)
+import Database.Esqueleto (
+	Value(..), (^.), (==.), select, insert, delete, from, where_, val )
 
+import Import.NoFoundation (
+	Eq, Show, MonadTrans, MonadIO, MonadThrow,
+	IO, Maybe(..), Either(..), Text, String, HashMap,
+	Profile(..), Value(..), RequestBody(..),
+	($), (.), (<$>), (<$), (<*>), (=<<),
+	(/=), (==), (<), (<>), (++), (-),
+	flip, maybe, uncurry, fst, foldr, return, lift, when,
+	print, putStr, putStrLn, toRational, fromRational, mod,
+	encodeUtf8, decodeUtf8, method, runDB, redirect, lookupGetParam )
+import Model (
+	EntityField(
+		OpenIdStateNonceState, OpenIdStateNonceNonce,
+		ProfileUserId ),
+	OpenIdStateNonce(..) )
+import Environment (
+	ClientId, ClientSecret, RedirectUri,
+	getClientId, cidToTxt, cidToBs,
+	getClientSecret, csToBs,
+	getRedirectUri, ruToTxt, ruToBs )
+import Common (
+	MyHandler, UserId(..), AccessToken(..),
+	getRand, rndToTxt, unstring )
+
+import qualified Data.Text as Txt
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Base64.URL as B64
-import qualified Data.Text as Txt
-import qualified Data.Aeson as Aeson
 import qualified Data.HashMap.Lazy as HML
-
-import Common (
-	MyHandler, AccessToken(..), UserId(..), unstring,
-	getRand, rndToTxt )
+import qualified Data.Aeson as Aeson
 
 yconnect :: ClientId -> RedirectUri -> MyHandler a
 yconnect cid ruri = do
