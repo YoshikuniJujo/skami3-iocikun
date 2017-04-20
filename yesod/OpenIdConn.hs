@@ -4,6 +4,8 @@ module OpenIdConn (
 	UserId, AccessToken,
 	yconnect, authenticate, getProfile, setProfile ) where
 
+import Prelude (undefined)
+
 import Control.Arrow (left)
 import Data.ByteArray (convert)
 import Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime, getCurrentTime)
@@ -18,12 +20,12 @@ import Database.Esqueleto (
 
 import Import.NoFoundation (
 	Eq, Show, MonadTrans, MonadIO, MonadThrow,
-	IO, Maybe(..), Either(..), Text, String, HashMap,
-	Profile(..), Value(..), RequestBody(..),
+	IO, Maybe(..), Either(..), Text, ByteString, String, HashMap,
+	Profile(..), Value(..), RequestBody(..), HeaderName,
 	($), (.), (<$>), (<$), (<*>), (=<<),
 	(/=), (==), (<), (<>), (++), (-),
 	flip, maybe, either, uncurry, fst, foldr, return, lift, when,
-	print, putStr, putStrLn, toRational, fromRational, mod,
+	putStrLn, toRational, fromRational, mod,
 	encodeUtf8, decodeUtf8, method, runDB, redirect, lookupGetParam )
 import Model (
 	EntityField(
@@ -35,7 +37,7 @@ import Environment (
 	cidToTxt, cidToBs, csToBs, ruToTxt, ruToBs )
 import Common (
 	MyHandler, UserId(..), AccessToken(..),
-	getRand, rndToTxt, unstring )
+	getRand, rndToTxt, unstring, unnumber )
 
 import qualified Data.Text as Txt
 import qualified Data.ByteString as BS
@@ -68,11 +70,10 @@ authenticate cid csc ruri = do
 	cs <- (\c s -> (,) <$> c <*> s) <$> lookupGetCode <*> lookupGetState
 	flip (maybe . return $ Left "no code or state") cs $ \(c, s) -> do
 		en <- getNonceFromState s
-		either (return . Left) (logined cid csc ruri c) en
+		either (return . Left) (lift . logined cid csc ruri c) en
 
-logined :: (MonadIO (t IO), MonadThrow (t IO), MonadTrans t) =>
-	ClientId -> ClientSecret -> RedirectUri -> Code -> Nonce0 ->
-	t IO (Either String (UserId, AccessToken))
+logined :: ClientId -> ClientSecret -> RedirectUri -> Code -> Nonce0 ->
+	IO (Either String (UserId, AccessToken))
 logined cid cs ruri code n0 = do
 	initReq <-
 		parseRequest "https://auth.login.yahoo.co.jp/yconnect/v1/token"
@@ -86,49 +87,74 @@ logined cid cs ruri code n0 = do
 			"redirect_uri=" <> ruToBs ruri
 	resp :: Maybe Aeson.Object <-
 		Aeson.decode . getResponseBody <$> httpLBS req'
-	let	ei = HML.lookup "expires_in" =<< resp
-		rt = HML.lookup "refresh_token" =<< resp
-	putStr "expires_in: "; print ei
-	putStr "refresh_token: "; print rt
 	let	tt = TokenType
 			<$> (unstring =<< HML.lookup "token_type" =<< resp)
-	now <- lift getPOSIXTime
+	now <- getPOSIXTime
 	return $ something tt cid cs n0 (Now now) =<<
 		maybe (Left "Can't decode to Aeson.Object") Right resp
-	where
-	basicAuthentication cid' cs' = ("Authorization", ["Basic " <> mkClientIdSecret])
-		where mkClientIdSecret = B64.encode $ cidToBs cid' <> ":" <> csToBs cs'
 
-newtype Iss = Iss Text deriving Show
-newtype Aud = Aud Text deriving Show
-newtype Now = Now POSIXTime deriving Show
-newtype Iat = Iat POSIXTime deriving Show
-newtype Exp = Exp POSIXTime deriving Show
-newtype Nonce1 = Nonce1 Text deriving Show
+basicAuthentication :: ClientId -> ClientSecret -> (HeaderName, [ByteString])
+basicAuthentication cid' cs' = (
+	"Authorization",
+	["Basic " <> B64.encode (cidToBs cid' <> ":" <> csToBs cs')] )
 
-newtype Signature = Signature Text deriving Show
+requestUserId :: (MonadIO m, MonadThrow m) =>
+	ClientId -> ClientSecret -> RedirectUri -> Code ->
+	m (Either String ((UserId, AccessToken), ToBeChecked))
+requestUserId cid cs ruri code = do
+	initReq <-
+		parseRequest "https://auth.login.yahoo.co.jp/yconnect/v1/token"
+	let	req = foldr (uncurry setRequestHeader)
+			initReq { method = "POST" } [
+			("Content-Type", ["application/x-www-form-urlencoded"]),
+			basicAuthentication cid cs ]
+		req' = (`setRequestBody` req) . RequestBodyBS $
+			"grant_type=authorization_code&" <>
+			"code=" <> codeToBs code <> "&" <>
+			"redirect_uri=" <> ruToBs ruri
+	resp :: Maybe Aeson.Object <-
+		Aeson.decode . getResponseBody <$> httpLBS req'
+	let	tt = TokenType
+			<$> (unstring =<< HML.lookup "token_type" =<< resp)
+		eat = AccessToken <$> maybe (Left "NO ACCESS_TOKEN") Right
+			(unstring =<< HML.lookup "access_token" =<< resp)
+		eit = maybe (Left "NO ID_TOKEN") Right
+			$ unstring =<< HML.lookup "id_token" =<< resp
+	return $ (\u a tbc -> ((u, a), tbc))
+		<$> undefined
+		<*> eat
+		<*> undefined
 
-newtype Header = Header Text deriving Show
-newtype Payload = Payload Text deriving Show
-
-headerToAeson :: Maybe Header -> Either String Aeson.Object
-headerToAeson (Just (Header t)) = toAeson t
-headerToAeson Nothing = Left "Can't get HEADER"
-
-payloadToAeson :: Maybe Payload -> Either String Aeson.Object
-payloadToAeson (Just (Payload t)) = toAeson t
-payloadToAeson Nothing = Left "Can't get PAYLOAD"
-
-toAeson :: Text -> Either String Aeson.Object
-toAeson t = do
-	b <- left ("B64.decode error: " ++)
-		. B64.decode $ encodeUtf8 padded
-	maybe (Left "Aeson.decode error") Right
-		. Aeson.decode $ LBS.fromStrict b
-	where
-	padded = t <> Txt.replicate (3 - (Txt.length t - 1) `mod` 4) "="
-
-newtype TokenType = TokenType Text deriving (Show, Eq)
+getUidAndTbc :: TokenType -> Text -> Either String (UserId, ToBeChecked)
+getUidAndTbc tt it = do
+	(hd, pl, sg) <- case Txt.splitOn "." it of
+		[h, p, s] -> return (h, p, s)
+		_ -> Left "BAD ID_TOKEN"
+	pld <- payloadToAeson' (Payload pl)
+	uid <- UserId <$> maybe (Left "NO USER_ID") Right
+		(unstring =<< HML.lookup "user_id" pld)
+	iss <- Iss <$> maybe (Left "NO ISS") Right
+		(unstring =<< HML.lookup "iss" pld)
+	aud <- Aud <$> maybe (Left "NO AUD") Right
+		(unstring =<< HML.lookup "aud" pld)
+	iat <- Iat . fromRational . toRational
+		<$> maybe (Left "NO IAT") Right
+			(unnumber =<< HML.lookup "iat" pld)
+	ex <- Exp . fromRational . toRational
+		<$> maybe (Left "NO EXP") Right
+			(unnumber =<< HML.lookup "exp" pld)
+	n1 <- Nonce1 <$> maybe (Left "NO Nonce") Right
+		(unstring =<< HML.lookup "nonce" pld)
+	return (uid, ToBeChecked {
+		tbcTokenType = tt,
+		tbcIss = iss,
+		tbcAud = aud,
+		tbcIat = iat,
+		tbcExp = ex,
+		tbcNonce = n1,
+		tbcHeader = Header hd,
+		tbcPayload = Payload pl,
+		tbcSignature = Signature sg } )
 
 something :: Maybe TokenType -> ClientId -> ClientSecret -> Nonce0 -> Now ->
 	HashMap Text Aeson.Value -> (Either String (UserId, AccessToken))
@@ -160,9 +186,40 @@ something tt clientId clientSecret n0 now resp = do
 		("typ", String "JWT") ]) $ Left "BAD HEADER"
 	check miss (maud, clientId) (miat, mex, now) (mn1, n0)
 		(clientSecret, mhd, mpl, msg) (muid, mat)
+
+newtype Iss = Iss Text deriving Show
+newtype Aud = Aud Text deriving Show
+newtype Now = Now POSIXTime deriving Show
+newtype Iat = Iat POSIXTime deriving Show
+newtype Exp = Exp POSIXTime deriving Show
+newtype Nonce1 = Nonce1 Text deriving Show
+
+newtype Signature = Signature Text deriving Show
+
+newtype Header = Header Text deriving Show
+newtype Payload = Payload Text deriving Show
+
+headerToAeson :: Maybe Header -> Either String Aeson.Object
+headerToAeson (Just (Header t)) = toAeson t
+headerToAeson Nothing = Left "Can't get HEADER"
+
+payloadToAeson :: Maybe Payload -> Either String Aeson.Object
+payloadToAeson (Just (Payload t)) = toAeson t
+payloadToAeson Nothing = Left "Can't get PAYLOAD"
+
+payloadToAeson' :: Payload -> Either String Aeson.Object
+payloadToAeson' (Payload t) = toAeson t
+
+toAeson :: Text -> Either String Aeson.Object
+toAeson t = do
+	b <- left ("B64.decode error: " ++)
+		. B64.decode $ encodeUtf8 padded
+	maybe (Left "Aeson.decode error") Right
+		. Aeson.decode $ LBS.fromStrict b
 	where
-	unnumber (Number n) = Just n
-	unnumber _ = Nothing
+	padded = t <> Txt.replicate (3 - (Txt.length t - 1) `mod` 4) "="
+
+newtype TokenType = TokenType Text deriving (Show, Eq)
 
 type M = Maybe
 
@@ -195,6 +252,23 @@ existence miss maud miat mexp mn1 mhd mpl msg mui mat = do
 	ui <- maybe (Left "NO USERID") Right mui
 	at <- maybe (Left "NO ACCESSTOKEN") Right mat
 	return (iss, aud, iat, ex, n1, hd, pl, sg, ui, at)
+
+data ToBeChecked = ToBeChecked {
+	tbcTokenType :: TokenType,
+	tbcIss :: Iss,
+	tbcAud :: Aud,
+	tbcIat :: Iat,
+	tbcExp :: Exp,
+	tbcNonce :: Nonce1,
+	tbcHeader :: Header,
+	tbcPayload :: Payload,
+	tbcSignature :: Signature }
+
+data CheckWith = CheckWith {
+	cwClientId :: ClientId,
+	cwClientSecret :: ClientSecret,
+	cwNow :: Now,
+	cwNonce :: Nonce0 }
 
 checkGen :: Iss -> (Aud, ClientId) -> (Iat, Exp, Now) -> (Nonce1, Nonce0) ->
 	(ClientSecret, Header, Payload, Signature) ->

@@ -2,7 +2,7 @@
 
 module Common (
 	Random, rndToTxt, unstring, UserId(..), AccessToken(..), MyHandler,
-	getRand, rndToBs
+	getRand, rndToBs, unnumber
 	) where
 
 import Import.NoFoundation hiding (UserId)
@@ -12,6 +12,8 @@ import qualified Data.Aeson as Aeson
 import qualified Data.ByteString.Base64.URL as B64
 
 import Crypto.Random
+
+import Data.Scientific
 
 newtype Random = Random { rndToBs :: ByteString }
 
@@ -25,6 +27,10 @@ rndToTxt = decodeUtf8 . rndToBs
 unstring :: Aeson.Value -> Maybe Text
 unstring (String t) = Just t
 unstring _ = Nothing
+
+unnumber :: Aeson.Value -> Maybe Scientific
+unnumber (Number n) = Just n
+unnumber _ = Nothing
 
 newtype UserId = UserId Text deriving Show
 newtype AccessToken = AccessToken Text deriving Show
