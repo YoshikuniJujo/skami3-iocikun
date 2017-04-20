@@ -22,7 +22,7 @@ import Import.NoFoundation (
 	Profile(..), Value(..), RequestBody(..),
 	($), (.), (<$>), (<$), (<*>), (=<<),
 	(/=), (==), (<), (<>), (++), (-),
-	flip, maybe, uncurry, fst, foldr, return, lift, when,
+	flip, maybe, either, uncurry, fst, foldr, return, lift, when,
 	print, putStr, putStrLn, toRational, fromRational, mod,
 	encodeUtf8, decodeUtf8, method, runDB, redirect, lookupGetParam )
 import Model (
@@ -32,9 +32,7 @@ import Model (
 	OpenIdStateNonce(..) )
 import Environment (
 	ClientId, ClientSecret, RedirectUri,
-	getClientId, cidToTxt, cidToBs,
-	getClientSecret, csToBs,
-	getRedirectUri, ruToTxt, ruToBs )
+	cidToTxt, cidToBs, csToBs, ruToTxt, ruToBs )
 import Common (
 	MyHandler, UserId(..), AccessToken(..),
 	getRand, rndToTxt, unstring )
@@ -63,12 +61,43 @@ yconnect cid ruri = do
 		"redirect_uri=" <> ruToTxt ruri <> "&" <>
 		"bail=1"
 
-newtype State = State Text
-newtype Nonce0 = Nonce0 Text
-newtype Code = Code Text
+authenticate ::
+	ClientId -> ClientSecret -> RedirectUri ->
+	MyHandler (Either String (UserId, AccessToken))
+authenticate cid csc ruri = do
+	cs <- (\c s -> (,) <$> c <*> s) <$> lookupGetCode <*> lookupGetState
+	flip (maybe . return $ Left "no code or state") cs $ \(c, s) -> do
+		en <- getNonceFromState s
+		either (return . Left) (logined cid csc ruri c) en
 
-codeToBs :: Code -> BS.ByteString
-codeToBs (Code c) = encodeUtf8 c
+logined :: (MonadIO (t IO), MonadThrow (t IO), MonadTrans t) =>
+	ClientId -> ClientSecret -> RedirectUri -> Code -> Nonce0 ->
+	t IO (Either String (UserId, AccessToken))
+logined cid cs ruri code n0 = do
+	initReq <-
+		parseRequest "https://auth.login.yahoo.co.jp/yconnect/v1/token"
+	let	req = foldr (uncurry setRequestHeader)
+			initReq { method = "POST" } [
+			("Content-Type", ["application/x-www-form-urlencoded"]),
+			basicAuthentication cid cs ]
+		req' = (`setRequestBody` req) . RequestBodyBS $
+			"grant_type=authorization_code&" <>
+			"code=" <> codeToBs code <> "&" <>
+			"redirect_uri=" <> ruToBs ruri
+	resp :: Maybe Aeson.Object <-
+		Aeson.decode . getResponseBody <$> httpLBS req'
+	let	ei = HML.lookup "expires_in" =<< resp
+		rt = HML.lookup "refresh_token" =<< resp
+	putStr "expires_in: "; print ei
+	putStr "refresh_token: "; print rt
+	let	tt = TokenType
+			<$> (unstring =<< HML.lookup "token_type" =<< resp)
+	now <- lift getPOSIXTime
+	return $ something tt cid cs n0 (Now now) =<<
+		maybe (Left "Can't decode to Aeson.Object") Right resp
+	where
+	basicAuthentication cid' cs' = ("Authorization", ["Basic " <> mkClientIdSecret])
+		where mkClientIdSecret = B64.encode $ cidToBs cid' <> ":" <> csToBs cs'
 
 newtype Iss = Iss Text deriving Show
 newtype Aud = Aud Text deriving Show
@@ -100,60 +129,6 @@ toAeson t = do
 	padded = t <> Txt.replicate (3 - (Txt.length t - 1) `mod` 4) "="
 
 newtype TokenType = TokenType Text deriving (Show, Eq)
-
--- newtype UserId = UserId Text deriving Show
--- newtype AccessToken = AccessToken Text deriving Show
-
-authenticate :: MyHandler (Either String (UserId, AccessToken))
-authenticate = do
-	cs <- (\c s -> (,) <$> c <*> s) <$> lookupGetCode <*> lookupGetState
-	maybe (return $ Left "no code or state") (uncurry logined_) cs
-	where
-	lookupGetCode = (Code <$>) <$> lookupGetParam "code"
-	lookupGetState = (State <$>) <$> lookupGetParam "state"
-
-logined_ :: Code -> State -> MyHandler (Either String (UserId, AccessToken))
-logined_ code (State state) = do
-	nonce <- runDB $ do
-		n <- select . from $ \sn -> do
-			where_ $ sn ^. OpenIdStateNonceState ==. val state
-			return ( sn ^. OpenIdStateNonceNonce )
-		delete . from $ \sc -> do
-			where_ $ sc ^. OpenIdStateNonceState ==. val state
-		return n
-	case nonce of
-		[Value n] -> loginedGen code (Nonce0 n)
-		_ -> return $ Left "No or Multiple state"
-
-loginedGen :: (MonadIO (t IO), MonadThrow (t IO), MonadTrans t) =>
-	Code -> Nonce0 -> t IO (Either String (UserId, AccessToken))
-loginedGen code n0 = do
-	(clientId, clientSecret, redirectUri) <- lift $ (,,) 
-		<$> getClientId <*> getClientSecret <*> getRedirectUri
-	initReq <-
-		parseRequest "https://auth.login.yahoo.co.jp/yconnect/v1/token"
-	let	req = foldr (uncurry setRequestHeader)
-			initReq { method = "POST" } [
-			("Content-Type", ["application/x-www-form-urlencoded"]),
-			basicAuthentication clientId clientSecret ]
-		req' = (`setRequestBody` req) . RequestBodyBS $
-			"grant_type=authorization_code&" <>
-			"code=" <> codeToBs code <> "&" <>
-			"redirect_uri=" <> ruToBs redirectUri
-	resp :: Maybe Aeson.Object <-
-		Aeson.decode . getResponseBody <$> httpLBS req'
-	let	ei = HML.lookup "expires_in" =<< resp
-		rt = HML.lookup "refresh_token" =<< resp
-	putStr "expires_in: "; print ei
-	putStr "refresh_token: "; print rt
-	let	tt = TokenType
-			<$> (unstring =<< HML.lookup "token_type" =<< resp)
-	now <- lift getPOSIXTime
-	return $ something tt clientId clientSecret n0 (Now now) =<<
-		maybe (Left "Can't decode to Aeson.Object") Right resp
-	where
-	basicAuthentication cid cs = ("Authorization", ["Basic " <> mkClientIdSecret])
-		where mkClientIdSecret = B64.encode $ cidToBs cid <> ":" <> csToBs cs
 
 something :: Maybe TokenType -> ClientId -> ClientSecret -> Nonce0 -> Now ->
 	HashMap Text Aeson.Value -> (Either String (UserId, AccessToken))
@@ -241,6 +216,32 @@ checkGen (Iss iss) (Aud aud, cid) (Iat iat, Exp ex, Now now)
 	return (uid, at)
 	where
 	hmacSha256 s d = B64.encode . convert $ hmacGetDigest (hmac s d :: HMAC SHA256)
+
+newtype Code = Code Text
+newtype State = State Text
+newtype Nonce0 = Nonce0 Text
+
+codeToBs :: Code -> BS.ByteString
+codeToBs (Code c) = encodeUtf8 c
+
+lookupGetCode :: MyHandler (Maybe Code)
+lookupGetCode = (Code <$>) <$> lookupGetParam "code"
+
+lookupGetState :: MyHandler (Maybe State)
+lookupGetState = (State <$>) <$> lookupGetParam "state"
+
+getNonceFromState :: State -> MyHandler (Either String Nonce0)
+getNonceFromState (State s) = do
+	vs <- runDB $ do
+		n <- select . from $ \sn -> do
+			where_ $ sn ^. OpenIdStateNonceState ==. val s
+			return ( sn ^. OpenIdStateNonceNonce )
+		delete . from $ \sc -> do
+			where_ $ sc ^. OpenIdStateNonceState ==. val s
+		return n
+	return $ case vs of
+		[Value n] -> Right $ Nonce0 n
+		_ -> Left "No or Multiple state"
 
 getProfile ::
        (MonadIO m, MonadThrow m) => AccessToken -> m (Maybe Aeson.Object)
