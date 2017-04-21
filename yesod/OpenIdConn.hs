@@ -4,6 +4,8 @@ module OpenIdConn (
 	UserId, AccessToken,
 	yconnect, authenticate, getProfile, setProfile ) where
 
+import Control.Monad.Trans.Except
+
 import Control.Arrow (left)
 import Data.ByteArray (convert)
 import Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime, getCurrentTime)
@@ -34,7 +36,7 @@ import Environment (
 	ClientId, ClientSecret, RedirectUri,
 	cidToTxt, cidToBs, csToBs, ruToTxt, ruToBs )
 import Common (
-	MyHandler, UserId(..), AccessToken(..),
+	MyHandler, EHandler, UserId(..), AccessToken(..),
 	getRand, rndToTxt, unstring, unnumber )
 
 import qualified Data.Text as Txt
@@ -65,9 +67,11 @@ authenticate ::
 	ClientId -> ClientSecret -> RedirectUri ->
 	MyHandler (Either String (UserId, AccessToken))
 authenticate cid csc ruri = do
-	cs <- (\c s -> (,) <$> c <*> s) <$> lookupGetCode <*> lookupGetState
-	flip (maybe . return $ Left "no code or state") cs $ \(c, s) -> do
-		en <- getNonceFromState s
+	cs <- (\c s -> (,) <$> c <*> s)
+		<$> runExceptT lookupGetCode
+		<*> runExceptT lookupGetState
+	flip (either $ return . Left) cs $ \(c, s) -> do
+		en <- runExceptT $ getNonceFromState s
 		flip (either $ return . Left) en . (lift .) $ \n0 -> do
 			uaTbc <- requestUserId cid csc ruri c
 			now <- getPOSIXTime
@@ -218,24 +222,26 @@ newtype Nonce0 = Nonce0 Text
 codeToBs :: Code -> BS.ByteString
 codeToBs (Code c) = encodeUtf8 c
 
-lookupGetCode :: MyHandler (Maybe Code)
-lookupGetCode = (Code <$>) <$> lookupGetParam "code"
+lookupGetCode :: EHandler Code
+lookupGetCode = maybe (throwE "NO CODE") (return . Code)
+	=<< lift (lookupGetParam "code")
 
-lookupGetState :: MyHandler (Maybe State)
-lookupGetState = (State <$>) <$> lookupGetParam "state"
+lookupGetState :: EHandler State
+lookupGetState = maybe (throwE "NO STATE") (return . State)
+	=<< lift (lookupGetParam "state")
 
-getNonceFromState :: State -> MyHandler (Either String Nonce0)
+getNonceFromState :: State -> EHandler Nonce0
 getNonceFromState (State s) = do
-	vs <- runDB $ do
+	vs <- lift . runDB $ do
 		n <- select . from $ \sn -> do
 			where_ $ sn ^. OpenIdStateNonceState ==. val s
 			return ( sn ^. OpenIdStateNonceNonce )
 		delete . from $ \sc -> do
 			where_ $ sc ^. OpenIdStateNonceState ==. val s
 		return n
-	return $ case vs of
-		[Value n] -> Right $ Nonce0 n
-		_ -> Left "No or Multiple state"
+	case vs of
+		[Value n] -> return $ Nonce0 n
+		_ -> throwE "No or Multiple state"
 
 getProfile ::
        (MonadIO m, MonadThrow m) => AccessToken -> m (Maybe Aeson.Object)

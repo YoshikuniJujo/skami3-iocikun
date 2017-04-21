@@ -109,6 +109,7 @@ library
                  , scientific
                  , cookie
                  , resource-pool
+                 , transformers
 
 executable         skami3-iocikun
     if flag(library-only)

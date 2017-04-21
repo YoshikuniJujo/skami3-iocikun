@@ -2,8 +2,10 @@
 
 module Common (
 	Random, rndToTxt, unstring, UserId(..), AccessToken(..), MyHandler,
-	getRand, rndToBs, unnumber
+	getRand, rndToBs, unnumber, EHandler
 	) where
+
+import Control.Monad.Trans.Except
 
 import Import.NoFoundation hiding (UserId)
 
@@ -41,3 +43,10 @@ type MyHandler a = forall site . (
 		PersistUniqueWrite (YesodPersistBackend site),
 		IsPersistBackend (YesodPersistBackend site),
 		YesodPersist site ) => HandlerT site IO a
+
+type EHandler a = forall site . (
+		BaseBackend (YesodPersistBackend site) ~ SqlBackend,
+		PersistQueryWrite (YesodPersistBackend site),
+		PersistUniqueWrite (YesodPersistBackend site),
+		IsPersistBackend (YesodPersistBackend site),
+		YesodPersist site ) => ExceptT String (HandlerT site IO) a
