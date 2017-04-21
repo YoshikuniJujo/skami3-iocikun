@@ -19,10 +19,10 @@ import Database.Esqueleto (
 	Value(..), (^.), (==.), select, insert, delete, from, where_, val )
 
 import Import.NoFoundation (
-	Eq, Show, MonadIO, MonadThrow,
+	Eq, Show, MonadIO, MonadThrow, Monad, liftIO,
 	Maybe(..), Either(..), Text, ByteString, String, HashMap,
 	Profile(..), Value(..), RequestBody(..), HeaderName,
-	($), (.), (<$>), (<$), (<*>), (=<<),
+	($), (.), (<$>), (<$), (<*>), (<*), (=<<), (>>),
 	(/=), (==), (<), (<>), (++), (-),
 	flip, maybe, either, uncurry, fst, foldr, return, lift, when,
 	putStrLn, toRational, fromRational, mod,
@@ -63,29 +63,37 @@ yconnect cid ruri = do
 		"redirect_uri=" <> ruToTxt ruri <> "&" <>
 		"bail=1"
 
-authenticate ::
-	ClientId -> ClientSecret -> RedirectUri ->
+authenticate :: ClientId -> ClientSecret -> RedirectUri ->
 	MyHandler (Either String (UserId, AccessToken))
-authenticate cid csc ruri = do
-	cs <- (\c s -> (,) <$> c <*> s)
-		<$> runExceptT lookupGetCode
-		<*> runExceptT lookupGetState
-	flip (either $ return . Left) cs $ \(c, s) -> do
-		en <- runExceptT $ getNonceFromState s
-		flip (either $ return . Left) en . (lift .) $ \n0 -> do
-			uaTbc <- requestUserId cid csc ruri c
-			now <- getPOSIXTime
-			return $ do
-				(ua, tbc) <- uaTbc
-				checkAll cid csc n0 now tbc
-				return ua
+authenticate cid csc ruri = runExceptT $ do
+	c <- maybe (throwE "NO CODE") (return . Code)
+		=<< lift (lookupGetParam "code")
+	s <- maybe (throwE "NO STATE") (return . State)
+		=<< lift (lookupGetParam "state")
+	n0 <- getNonceFromState s
+	(ua, tbc) <- requestUserId cid csc ruri c
+	now <- liftIO getPOSIXTime
+	checkAll cid csc n0 now tbc
+	return ua
+
+getNonceFromState :: State -> EHandler Nonce0
+getNonceFromState (State s) = do
+	vs <- lift . runDB $
+		select (from $ (>>)
+			<$> where_ . (==. val s) . (^. OpenIdStateNonceState)
+			<*> return . (^. OpenIdStateNonceNonce))
+		<* delete (from $
+			where_ . (==. val s) . (^. OpenIdStateNonceState))
+	case vs of
+		[Value n] -> return $ Nonce0 n
+		_ -> throwE "No or Multiple state"
 
 requestUserId :: (MonadIO m, MonadThrow m) =>
 	ClientId -> ClientSecret -> RedirectUri -> Code ->
-	m (Either String ((UserId, AccessToken), ToBeChecked))
+	ExceptT String m ((UserId, AccessToken), ToBeChecked)
 requestUserId cid cs ruri code = do
 	initReq <-
-		parseRequest "https://auth.login.yahoo.co.jp/yconnect/v1/token"
+		lift $ parseRequest "https://auth.login.yahoo.co.jp/yconnect/v1/token"
 	let	req = foldr (uncurry setRequestHeader)
 			initReq { method = "POST" } [
 			("Content-Type", ["application/x-www-form-urlencoded"]),
@@ -95,19 +103,18 @@ requestUserId cid cs ruri code = do
 			"code=" <> codeToBs code <> "&" <>
 			"redirect_uri=" <> ruToBs ruri
 	resp :: Maybe Aeson.Object <-
-		Aeson.decode . getResponseBody <$> httpLBS req'
+		lift $ Aeson.decode . getResponseBody <$> httpLBS req'
 	let	ett = TokenType <$> maybe (Left "NO TOKEN_TYPE") Right
 			(unstring =<< HML.lookup "token_type" =<< resp)
 		eat = AccessToken <$> maybe (Left "NO ACCESS_TOKEN") Right
 			(unstring =<< HML.lookup "access_token" =<< resp)
 		eit = maybe (Left "NO ID_TOKEN") Right
 			$ unstring =<< HML.lookup "id_token" =<< resp
-	return $ do
-		tt <- ett
-		it <- eit
-		at <- eat
-		(uid, tbc) <- getUidAndTbc tt it
-		return ((uid, at), tbc)
+	tt <- either throwE return ett
+	at <- either throwE return eat
+	it <- either throwE return eit
+	(uid, tbc) <- either throwE return $ getUidAndTbc tt it
+	return ((uid, at), tbc)
 
 basicAuthentication :: ClientId -> ClientSecret -> (HeaderName, [ByteString])
 basicAuthentication cid' cs' = (
@@ -145,25 +152,25 @@ getUidAndTbc tt it = do
 		tbcPayload = Payload pl,
 		tbcSignature = Signature sg } )
 
-checkAll ::
+checkAll :: Monad m =>
 	ClientId -> ClientSecret -> Nonce0 -> POSIXTime -> ToBeChecked ->
-	Either String ()
+	ExceptT String m ()
 checkAll cid cs (Nonce0 n0) now tbc = do
 	when (tbcTokenType tbc /= TokenType "bearer") $
-		Left "BAD TOKEN_TYPE"
+		throwE "BAD TOKEN_TYPE"
 	hdd <- headerToAeson $ tbcHeader tbc
 	when (hdd /= HML.fromList [
 		("alg", String "HS256"),
-		("typ", String "JWT") ]) $ Left "BAD HEADER"
-	when (iss /= "https://auth.login.yahoo.co.jp") $ Left "BAD ISS"
-	when (aud /= cidToTxt cid) $ Left "BAD AUD"
-	when (iat < now - 600) $ Left "BAD IAT"
-	when (ex < now) $ Left "BAD EXP"
-	when (n1 /= n0) $ Left "BAD NONCE"
+		("typ", String "JWT") ]) $ throwE "BAD HEADER"
+	when (iss /= "https://auth.login.yahoo.co.jp") $ throwE "BAD ISS"
+	when (aud /= cidToTxt cid) $ throwE "BAD AUD"
+	when (iat < now - 600) $ throwE "BAD IAT"
+	when (ex < now) $ throwE "BAD EXP"
+	when (n1 /= n0) $ throwE "BAD NONCE"
 	let sg1 = Signature . decodeUtf8
 		. fst . BSC.spanEnd (== '=') . hmacSha256 (csToBs cs)
 		$ encodeUtf8 hd <> "." <> encodeUtf8 pl
-	when (sg1 /= sg) $ Left "BAD SIGNATURE"
+	when (sg1 /= sg) $ throwE "BAD SIGNATURE"
 	where
 	hmacSha256 s d = B64.encode . convert $ hmacGetDigest (hmac s d :: HMAC SHA256)
 	Iss iss = tbcIss tbc
@@ -187,8 +194,8 @@ newtype Signature = Signature Text deriving (Eq, Show)
 newtype Header = Header Text deriving Show
 newtype Payload = Payload Text deriving Show
 
-headerToAeson :: Header -> Either String Aeson.Object
-headerToAeson (Header t) = toAeson t
+headerToAeson :: Monad m => Header -> ExceptT String m Aeson.Object
+headerToAeson (Header t) = either throwE return $ toAeson t
 
 payloadToAeson :: Payload -> Either String Aeson.Object
 payloadToAeson (Payload t) = toAeson t
@@ -221,27 +228,6 @@ newtype Nonce0 = Nonce0 Text
 
 codeToBs :: Code -> BS.ByteString
 codeToBs (Code c) = encodeUtf8 c
-
-lookupGetCode :: EHandler Code
-lookupGetCode = maybe (throwE "NO CODE") (return . Code)
-	=<< lift (lookupGetParam "code")
-
-lookupGetState :: EHandler State
-lookupGetState = maybe (throwE "NO STATE") (return . State)
-	=<< lift (lookupGetParam "state")
-
-getNonceFromState :: State -> EHandler Nonce0
-getNonceFromState (State s) = do
-	vs <- lift . runDB $ do
-		n <- select . from $ \sn -> do
-			where_ $ sn ^. OpenIdStateNonceState ==. val s
-			return ( sn ^. OpenIdStateNonceNonce )
-		delete . from $ \sc -> do
-			where_ $ sc ^. OpenIdStateNonceState ==. val s
-		return n
-	case vs of
-		[Value n] -> return $ Nonce0 n
-		_ -> throwE "No or Multiple state"
 
 getProfile ::
        (MonadIO m, MonadThrow m) => AccessToken -> m (Maybe Aeson.Object)
