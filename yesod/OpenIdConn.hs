@@ -11,6 +11,7 @@ import Data.ByteArray (convert)
 import Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime, getCurrentTime)
 import Text.Read (readMaybe)
 import Network.HTTP.Simple (
+	Request,
 	httpLBS, getResponseBody,
 	parseRequest, setRequestBody, setRequestHeader )
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
@@ -19,7 +20,7 @@ import Database.Esqueleto (
 	Value(..), (^.), (==.), select, insert, delete, from, where_, val )
 
 import Import.NoFoundation (
-	Eq, Show, MonadIO, MonadThrow, Monad, liftIO,
+	Eq, Show, MonadIO, MonadThrow, Monad, liftIO, first,
 	Maybe(..), Either(..), Text, ByteString, String, HashMap,
 	Profile(..), Value(..), RequestBody(..), HeaderName,
 	($), (.), (<$>), (<$), (<*>), (<*), (=<<), (>>),
@@ -92,54 +93,67 @@ requestUserId :: (MonadIO m, MonadThrow m) =>
 	ClientId -> ClientSecret -> RedirectUri -> Code ->
 	ExceptT String m ((UserId, AccessToken), ToBeChecked)
 requestUserId cid cs ruri code = do
-	initReq <-
-		lift $ parseRequest "https://auth.login.yahoo.co.jp/yconnect/v1/token"
-	let	req = foldr (uncurry setRequestHeader)
-			initReq { method = "POST" } [
-			("Content-Type", ["application/x-www-form-urlencoded"]),
-			basicAuthentication cid cs ]
-		req' = (`setRequestBody` req) . RequestBodyBS $
-			"grant_type=authorization_code&" <>
-			"code=" <> codeToBs code <> "&" <>
-			"redirect_uri=" <> ruToBs ruri
-	resp :: Maybe Aeson.Object <-
-		lift $ Aeson.decode . getResponseBody <$> httpLBS req'
-	let	ett = TokenType <$> maybe (Left "NO TOKEN_TYPE") Right
-			(unstring =<< HML.lookup "token_type" =<< resp)
-		eat = AccessToken <$> maybe (Left "NO ACCESS_TOKEN") Right
-			(unstring =<< HML.lookup "access_token" =<< resp)
-		eit = maybe (Left "NO ID_TOKEN") Right
-			$ unstring =<< HML.lookup "id_token" =<< resp
-	tt <- either throwE return ett
-	at <- either throwE return eat
-	it <- either throwE return eit
-	(uid, tbc) <- either throwE return $ getUidAndTbc tt it
-	return ((uid, at), tbc)
+	mrsp :: Maybe Aeson.Object <- lift
+		. (Aeson.decode . getResponseBody <$>)
+		. httpLBS
+		. setMethodHeadersBody
+			"POST"
+			[contentType, basicAuthentication cid cs]
+			(	"grant_type=authorization_code&" <>
+				"code=" <> codeToBs code <> "&" <>
+				"redirect_uri=" <> ruToBs ruri )
+		=<< parseRequest authUri
+	rsp <- maybe (throwE "BAD RESPONSE") return mrsp
+	at <- maybe (throwE "NO ACCESS_TOKEN") (return . AccessToken)
+		$ unstring =<< HML.lookup "access_token" rsp
+	tt <- maybe (throwE "NO TOKEN_TYPE") (return . TokenType)
+		$ unstring =<< HML.lookup "token_type" rsp
+	it <- maybe (throwE "NO ID_TOKEN") return
+		$ unstring =<< HML.lookup "id_token" rsp
+	first (, at) <$> getUidAndTbc tt it
+	-- ^
+	-- |
+	-- Use ZipList
+
+authUri :: String
+authUri = "https://auth.login.yahoo.co.jp/yconnect/v1/token"
+
+contentType :: (HeaderName, [ByteString])
+contentType = ("Content-Type", ["application/x-www-form-urlencoded"])
 
 basicAuthentication :: ClientId -> ClientSecret -> (HeaderName, [ByteString])
 basicAuthentication cid' cs' = (
 	"Authorization",
 	["Basic " <> B64.encode (cidToBs cid' <> ":" <> csToBs cs')] )
 
-getUidAndTbc :: TokenType -> Text -> Either String (UserId, ToBeChecked)
+setMethodHeadersBody ::
+	ByteString -> [(HeaderName, [ByteString])] -> ByteString ->
+	Request -> Request
+setMethodHeadersBody m h b r0 =
+	let	r1 = foldr (uncurry setRequestHeader) r0 { method = m } h
+		r2 = (`setRequestBody` r1) $ RequestBodyBS b in
+		r2
+
+getUidAndTbc :: Monad m =>
+	TokenType -> Text -> ExceptT String m (UserId, ToBeChecked)
 getUidAndTbc tt it = do
 	(hd, pl, sg) <- case Txt.splitOn "." it of
 		[h, p, s] -> return (h, p, s)
-		_ -> Left "BAD ID_TOKEN"
+		_ -> throwE "BAD ID_TOKEN"
 	pld <- payloadToAeson (Payload pl)
-	uid <- UserId <$> maybe (Left "NO USER_ID") Right
+	uid <- UserId <$> maybe (throwE "NO USER_ID") return
 		(unstring =<< HML.lookup "user_id" pld)
-	iss <- Iss <$> maybe (Left "NO ISS") Right
+	iss <- Iss <$> maybe (throwE "NO ISS") return
 		(unstring =<< HML.lookup "iss" pld)
-	aud <- Aud <$> maybe (Left "NO AUD") Right
+	aud <- Aud <$> maybe (throwE "NO AUD") return
 		(unstring =<< HML.lookup "aud" pld)
 	iat <- Iat . fromRational . toRational
-		<$> maybe (Left "NO IAT") Right
+		<$> maybe (throwE "NO IAT") return
 			(unnumber =<< HML.lookup "iat" pld)
 	ex <- Exp . fromRational . toRational
-		<$> maybe (Left "NO EXP") Right
+		<$> maybe (throwE "NO EXP") return
 			(unnumber =<< HML.lookup "exp" pld)
-	n1 <- Nonce1 <$> maybe (Left "NO Nonce") Right
+	n1 <- Nonce1 <$> maybe (throwE "NO Nonce") return
 		(unstring =<< HML.lookup "nonce" pld)
 	return (uid, ToBeChecked {
 		tbcTokenType = tt,
@@ -197,8 +211,8 @@ newtype Payload = Payload Text deriving Show
 headerToAeson :: Monad m => Header -> ExceptT String m Aeson.Object
 headerToAeson (Header t) = either throwE return $ toAeson t
 
-payloadToAeson :: Payload -> Either String Aeson.Object
-payloadToAeson (Payload t) = toAeson t
+payloadToAeson :: Monad m => Payload -> ExceptT String m Aeson.Object
+payloadToAeson (Payload t) = either throwE return $ toAeson t
 
 toAeson :: Text -> Either String Aeson.Object
 toAeson t = do
